@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log
+.git
+.github
+coverage
+logs
+.env
+.env.*
+*.md
+tests
+make-flows
+railway.json

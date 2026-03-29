@@ -1,0 +1,10 @@
+config:
+  WEBHOOK_BASE_URL: https://stage.example.com
+  ERPNEXT_BASE_URL: https://erpnext-stage.example.com
+
+ingress:
+  hosts:
+    - host: stage.property.example.com
+      paths:
+        - path: /
+          pathType: Prefix

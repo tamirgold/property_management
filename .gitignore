@@ -6,3 +6,8 @@ logs/
 dist/
 .DS_Store
 tests/screenshots/
+platform-store.json
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*

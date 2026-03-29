@@ -1,0 +1,135 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: change-me.azurecr.io/property-management
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount:
+  web: 2
+  telegram: 1
+
+serviceAccount:
+  create: true
+  name: ""
+
+workloadIdentity:
+  enabled: true
+  clientId: ""
+  tenantId: ""
+
+keyVault:
+  name: ""
+  secretProviderClassName: property-management-spc
+  objects:
+    - OPENAI_API_KEY
+    - TELEGRAM_BOT_TOKEN
+    - TELEGRAM_ALLOWED_USER_IDS
+    - TELEGRAM_ALLOWED_GROUP_IDS
+    - ERPNEXT_API_KEY
+    - ERPNEXT_API_SECRET
+    - WEBHOOK_SECRET
+    - STRIPE_SECRET_KEY
+    - STRIPE_PUBLISHABLE_KEY
+    - STRIPE_WEBHOOK_SECRET
+    - TWILIO_ACCOUNT_SID
+    - TWILIO_AUTH_TOKEN
+    - TWILIO_FROM_NUMBER
+    - BOLDSIGN_API_KEY
+    - BOLDSIGN_WEBHOOK_SECRET
+    - SMARTMOVE_API_KEY
+    - DATABASE_URL
+
+config:
+  WEBHOOK_PORT: "3000"
+  OPENAI_MODEL: "gpt-4o"
+  LOG_LEVEL: "info"
+  PLATFORM_MULTI_TENANT: "1"
+  DEFAULT_TENANT_SLUG: "legacy-default"
+  DEFAULT_TENANT_NAME: "Legacy Default Company"
+  DEFAULT_TENANT_TIMEZONE: "America/Los_Angeles"
+  DEFAULT_TENANT_LOCALE: "en-US"
+  DEFAULT_TENANT_CURRENCY: "USD"
+  REPORT_DELIVERY: "telegram"
+  WEBHOOK_BASE_URL: ""
+  ERPNEXT_BASE_URL: ""
+  LANDLORD_NAME: ""
+  LANDLORD_EMAIL: ""
+  LANDLORD_PHONE: ""
+  LANDLORD_ADDRESS: ""
+  BOLDSIGN_TEMPLATE_OH_LEASE: ""
+  BOLDSIGN_TEMPLATE_OH_RENEWAL: ""
+  BOLDSIGN_TEMPLATE_NC_LEASE: ""
+  BOLDSIGN_TEMPLATE_NC_RENEWAL: ""
+
+resources:
+  web:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  telegram:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  jobs:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: app.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    enabled: true
+    secretName: property-management-tls
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+cronJobs:
+  timezone: America/Los_Angeles
+  jobs:
+    - id: overdue_rent
+      enabled: true
+      schedule: "0 8 * * *"
+    - id: lease_renewal
+      enabled: true
+      schedule: "0 10 * * *"
+    - id: late_fees
+      enabled: true
+      schedule: "30 10 * * *"
+    - id: stale_work_orders
+      enabled: true
+      schedule: "0 9 * * *"
+    - id: weekly_report
+      enabled: true
+      schedule: "0 17 * * 5"

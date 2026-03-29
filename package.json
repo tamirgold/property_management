@@ -6,9 +6,14 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
+    "start:web": "APP_MODE=web node src/index.js",
+    "start:telegram": "APP_MODE=telegram node src/index.js",
+    "start:scheduler": "APP_MODE=scheduler node src/index.js",
+    "run:job": "APP_MODE=job node src/index.js",
     "test": "jest --coverage --forceExit",
     "test:watch": "jest --watch",
     "lint": "eslint 'src/**/*.js' 'tests/**/*.js'",
+    "migrate": "bash scripts/run-migrations.sh",
     "setup:erpnext": "node scripts/setup-erpnext-fields.js",
     "setup:scripts": "node scripts/run-erpnext-setup.js",
     "setup:portal": "node scripts/setup-tenant-portal.js"

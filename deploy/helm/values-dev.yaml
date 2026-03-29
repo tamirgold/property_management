@@ -1,0 +1,14 @@
+config:
+  WEBHOOK_BASE_URL: https://dev.example.com
+  ERPNEXT_BASE_URL: https://erpnext-dev.example.com
+
+ingress:
+  hosts:
+    - host: dev.property.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+hpa:
+  minReplicas: 1
+  maxReplicas: 3

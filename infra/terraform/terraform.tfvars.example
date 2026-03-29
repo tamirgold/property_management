@@ -1,0 +1,21 @@
+prefix              = "propertymgmt"
+resource_group_name = "propertymgmt-rg"
+location            = "eastus"
+postgres_location   = "centralus"
+
+github_owner      = "your-github-org"
+github_repository = "property_management"
+github_branch     = "main"
+
+kubernetes_version = "1.33.0"
+aks_node_vm_size   = "Standard_D4s_v5"
+aks_node_count     = 3
+
+k8s_namespace_prefix    = "app"
+k8s_service_account_name = "property-management-sa"
+
+postgres_admin_username = "pgadmin"
+postgres_admin_password = "replace-with-secure-password"
+postgres_sku_name       = "GP_Standard_D2s_v3"
+postgres_storage_mb     = 32768
+postgres_database_name  = "property_management"

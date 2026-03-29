@@ -120,6 +120,50 @@ tests/
 
 ## Quick Start
 
+### Multi-tenant SaaS mode (new)
+
+Set `PLATFORM_MULTI_TENANT=1` and configure:
+
+- `DATABASE_URL` (recommended) or `PLATFORM_STORE_PATH`
+- `PLATFORM_ENCRYPTION_KEY` (for encrypted tenant credentials)
+- `PLATFORM_OWNER_EMAIL` and `PLATFORM_OWNER_PASSWORD`
+
+SaaS admin/auth API base path:
+
+- `POST /api/v2/auth/login`
+- `POST /api/v2/auth/verify-otp`
+- `GET /api/v2/me`
+- `GET/POST /api/v2/tenants`
+- `GET/PUT /api/v2/tenants/:tenantId/settings`
+- `GET/PUT /api/v2/tenants/:tenantId/integrations/:provider`
+- `GET/PUT /api/v2/tenants/:tenantId/automations`
+
+Tenant self-service API (tenant role only):
+
+- `GET /api/v2/tenant/me`
+- `GET /api/v2/tenant/lease`
+- `GET /api/v2/tenant/documents[?leaseId=<LEASE_ID>]`
+- `GET /api/v2/tenant/invoices?status=all|unpaid|paid`
+- `GET /api/v2/tenant/payments`
+- `GET /api/v2/tenant/tickets`
+- `POST /api/v2/tenant/tickets`
+
+Tenant-scoped machine webhook pattern:
+
+- `/webhooks/t/:tenantKey/...` (in addition to legacy `/webhooks/...`)
+
+Role model in multi-tenant mode:
+
+- `saas_admin`: global platform operator (cross-company control)
+- `company_admin`: admin inside one property-management company
+- `company_user`: staff user inside one company (for day-to-day operations)
+- `tenant`: renter account (not a back-office staff/admin account)
+
+Admin UIs:
+
+- `/admin` → SaaS admin console when `PLATFORM_MULTI_TENANT=1`
+- `/admin/legacy` → legacy scheduler admin page
+
 ### 1. Prerequisites
 
 - Node.js ≥ 18
@@ -288,6 +332,7 @@ Tenants log in at `{ERPNEXT_BASE_URL}/login` and see:
 | [Tenant Guide](docs/tenant-guide.md) | Current tenants | Portal login, paying rent, lease, documents, maintenance |
 | [Applicant Guide](docs/applicant-guide.md) | Prospective tenants | How to apply, screening process, lease signing |
 | [Operations Guide](docs/operations.md) | System administrator | Setup, deployment, env vars, webhook config, troubleshooting |
+| [Azure CI/CD Guide](docs/azure-cicd.md) | DevOps | Terraform + AKS + GitHub Actions deployment pipeline |
 
 ---
 

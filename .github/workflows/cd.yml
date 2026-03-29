@@ -1,0 +1,200 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  CHART_PATH: deploy/helm
+  RELEASE_NAME: property-management
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      - name: Build and push image
+        id: meta
+        run: |
+          IMAGE_TAG=${GITHUB_SHA}
+          IMAGE="${{ vars.ACR_LOGIN_SERVER }}/property-management:${IMAGE_TAG}"
+          docker build -t "${IMAGE}" .
+          docker push "${IMAGE}"
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+  deploy-dev:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/setup-kubectl@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Get AKS credentials
+        run: az aks get-credentials --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" --name "${{ vars.AKS_CLUSTER_NAME }}" --overwrite-existing
+
+      - name: Create namespace
+        run: kubectl create namespace "${{ vars.K8S_NAMESPACE }}" --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Run DB migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if compgen -G "db/migrations/*.sql" > /dev/null; then
+            docker run --rm \
+              -e DATABASE_URL="${DATABASE_URL}" \
+              -v "${PWD}/db/migrations:/migrations:ro" \
+              postgres:16 \
+              sh -c 'for f in $(ls /migrations/*.sql | sort); do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done'
+          else
+            echo "No db/migrations/*.sql files found, skipping."
+          fi
+
+      - name: Helm deploy
+        run: |
+          helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
+            --namespace "${{ vars.K8S_NAMESPACE }}" \
+            -f "${CHART_PATH}/values.yaml" \
+            -f "${CHART_PATH}/values-dev.yaml" \
+            --set image.repository="${{ vars.ACR_LOGIN_SERVER }}/property-management" \
+            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
+            --set serviceAccount.name="${{ vars.K8S_SERVICE_ACCOUNT_NAME }}" \
+            --set workloadIdentity.clientId="${{ vars.WORKLOAD_IDENTITY_CLIENT_ID }}" \
+            --set workloadIdentity.tenantId="${{ secrets.AZURE_TENANT_ID }}" \
+            --set keyVault.name="${{ vars.KEY_VAULT_NAME }}"
+
+      - name: Smoke test
+        run: curl -fsS "${{ vars.APP_BASE_URL }}/webhooks/health"
+
+  deploy-stage:
+    needs: [build-and-push, deploy-dev]
+    runs-on: ubuntu-latest
+    environment: stage
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/setup-kubectl@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Get AKS credentials
+        run: az aks get-credentials --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" --name "${{ vars.AKS_CLUSTER_NAME }}" --overwrite-existing
+
+      - name: Create namespace
+        run: kubectl create namespace "${{ vars.K8S_NAMESPACE }}" --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Run DB migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if compgen -G "db/migrations/*.sql" > /dev/null; then
+            docker run --rm \
+              -e DATABASE_URL="${DATABASE_URL}" \
+              -v "${PWD}/db/migrations:/migrations:ro" \
+              postgres:16 \
+              sh -c 'for f in $(ls /migrations/*.sql | sort); do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done'
+          else
+            echo "No db/migrations/*.sql files found, skipping."
+          fi
+
+      - name: Helm deploy
+        run: |
+          helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
+            --namespace "${{ vars.K8S_NAMESPACE }}" \
+            -f "${CHART_PATH}/values.yaml" \
+            -f "${CHART_PATH}/values-stage.yaml" \
+            --set image.repository="${{ vars.ACR_LOGIN_SERVER }}/property-management" \
+            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
+            --set serviceAccount.name="${{ vars.K8S_SERVICE_ACCOUNT_NAME }}" \
+            --set workloadIdentity.clientId="${{ vars.WORKLOAD_IDENTITY_CLIENT_ID }}" \
+            --set workloadIdentity.tenantId="${{ secrets.AZURE_TENANT_ID }}" \
+            --set keyVault.name="${{ vars.KEY_VAULT_NAME }}"
+
+      - name: Smoke test
+        run: curl -fsS "${{ vars.APP_BASE_URL }}/webhooks/health"
+
+  deploy-prod:
+    needs: [build-and-push, deploy-stage]
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/setup-kubectl@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Get AKS credentials
+        run: az aks get-credentials --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" --name "${{ vars.AKS_CLUSTER_NAME }}" --overwrite-existing
+
+      - name: Create namespace
+        run: kubectl create namespace "${{ vars.K8S_NAMESPACE }}" --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Run DB migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if compgen -G "db/migrations/*.sql" > /dev/null; then
+            docker run --rm \
+              -e DATABASE_URL="${DATABASE_URL}" \
+              -v "${PWD}/db/migrations:/migrations:ro" \
+              postgres:16 \
+              sh -c 'for f in $(ls /migrations/*.sql | sort); do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done'
+          else
+            echo "No db/migrations/*.sql files found, skipping."
+          fi
+
+      - name: Helm deploy
+        run: |
+          helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
+            --namespace "${{ vars.K8S_NAMESPACE }}" \
+            -f "${CHART_PATH}/values.yaml" \
+            -f "${CHART_PATH}/values-prod.yaml" \
+            --set image.repository="${{ vars.ACR_LOGIN_SERVER }}/property-management" \
+            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
+            --set serviceAccount.name="${{ vars.K8S_SERVICE_ACCOUNT_NAME }}" \
+            --set workloadIdentity.clientId="${{ vars.WORKLOAD_IDENTITY_CLIENT_ID }}" \
+            --set workloadIdentity.tenantId="${{ secrets.AZURE_TENANT_ID }}" \
+            --set keyVault.name="${{ vars.KEY_VAULT_NAME }}"
+
+      - name: Smoke test
+        run: curl -fsS "${{ vars.APP_BASE_URL }}/webhooks/health"
