@@ -8,7 +8,7 @@
  * safe to call multiple times.
  */
 
-const api    = require('../api/index');
+const apiRoot = require('../api/index');
 const logger = require('../logger');
 
 // Lazily loaded to avoid circular dependencies
@@ -19,6 +19,26 @@ function getSms() {
   return require('../sms/dispatcher');
 }
 
+function getApiClient(tenantContext) {
+  if (!tenantContext) return apiRoot;
+  if (typeof apiRoot.forTenant !== 'function') return apiRoot;
+  return apiRoot.forTenant(tenantContext);
+}
+
+function notifyWithTenant(notifyLandlord, text, tenantContext) {
+  if (process.env.PLATFORM_MULTI_TENANT === '1' && tenantContext) {
+    return notifyLandlord(text, { tenantContext });
+  }
+  return notifyLandlord(text);
+}
+
+function sendSmsWithTenant(sms, to, body, tenantContext) {
+  if (process.env.PLATFORM_MULTI_TENANT === '1' && tenantContext) {
+    return sms.send(to, body, { tenantContext });
+  }
+  return sms.send(to, body);
+}
+
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
 function daysOverdue(dueDateStr) {
@@ -27,15 +47,24 @@ function daysOverdue(dueDateStr) {
   return Math.floor(diff / 86_400_000);
 }
 
+function parseDateOnlyUtc(dateStr) {
+  if (!dateStr) return NaN;
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  if (!y || !m || !d) return NaN;
+  return Date.UTC(y, m - 1, d);
+}
+
 // ─── Overdue Rent Check ───────────────────────────────────────────────────────
 
 /**
  * Check for overdue invoices and send SMS reminders to tenants.
  * Fires a Telegram summary to the landlord after dispatching all SMSs.
  */
-async function runOverdueRentCheck() {
+async function runOverdueRentCheck(options = {}) {
   const notifyLandlord = getNotifyLandlord();
   const sms            = getSms();
+  const tenantContext  = options.tenantContext || null;
+  const api = getApiClient(tenantContext);
 
   let invoices;
   try {
@@ -79,7 +108,7 @@ async function runOverdueRentCheck() {
         propertyAddress: inv.propertyAddress,
         amountDue:       inv.amountDue,
       });
-      await sms.send(phone, msg);
+      await sendSmsWithTenant(sms, phone, msg, tenantContext);
     } catch (err) {
       logger.error('Failed to send overdue SMS', { tenant: inv.tenantName, error: err.message });
     }
@@ -92,7 +121,7 @@ async function runOverdueRentCheck() {
       ? 'Overdue rent check: all rent payments are current.'
       : `Overdue rent check: ${overdue.length} ${plural} with outstanding balances.\n` +
         overdue.map(t => `  • ${t.tenantName}: $${t.amountDue}`).join('\n');
-    await notifyLandlord(summary);
+    await notifyWithTenant(notifyLandlord, summary, tenantContext);
   } catch (err) {
     logger.error('Failed to send Telegram rent summary', { error: err.message });
   }
@@ -106,9 +135,11 @@ async function runOverdueRentCheck() {
  * Telegram summary to the landlord.  Uses custom_renewal_notice_sent on Lease
  * to prevent duplicate alerts within the same 30-day window.
  */
-async function runLeaseRenewalCheck() {
+async function runLeaseRenewalCheck(options = {}) {
   const notifyLandlord = getNotifyLandlord();
   const sms            = getSms();
+  const tenantContext  = options.tenantContext || null;
+  const api = getApiClient(tenantContext);
 
   let leases;
   try {
@@ -123,13 +154,16 @@ async function runLeaseRenewalCheck() {
     return;
   }
 
-  const today    = new Date(); today.setHours(0, 0, 0, 0);
-  const THIRTY   = 30 * 86_400_000;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayUtc = parseDateOnlyUtc(todayStr);
+  const THIRTY_DAYS = 30;
   const alerts   = [];
 
   for (const lease of leases) {
-    const end      = new Date(lease.end_date);
-    const daysLeft = Math.ceil((end.getTime() - today.getTime()) / 86_400_000);
+    const endUtc = parseDateOnlyUtc(lease.end_date);
+    if (Number.isNaN(endUtc)) continue;
+
+    const daysLeft = Math.round((endUtc - todayUtc) / 86_400_000);
 
     // Only alert at 90, 60, 30, or 14-day milestones
     const isMilestone = [90, 60, 30, 14].includes(daysLeft);
@@ -137,8 +171,11 @@ async function runLeaseRenewalCheck() {
 
     // Deduplicate: skip if we already sent a notice within the last 30 days
     if (lease.custom_renewal_notice_sent) {
-      const lastSent = new Date(lease.custom_renewal_notice_sent);
-      if (today.getTime() - lastSent.getTime() < THIRTY) continue;
+      const lastSentUtc = parseDateOnlyUtc(lease.custom_renewal_notice_sent);
+      if (!Number.isNaN(lastSentUtc)) {
+        const daysSinceLastSent = Math.round((todayUtc - lastSentUtc) / 86_400_000);
+        if (daysSinceLastSent < THIRTY_DAYS) continue;
+      }
     }
 
     // Fetch tenant phone number
@@ -150,13 +187,14 @@ async function runLeaseRenewalCheck() {
 
     const tenantName = lease.lease_customer || 'Tenant';
     const unit       = lease.property || '';
-    const endDateStr = end.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const endDateStr = new Date(`${lease.end_date}T12:00:00Z`)
+      .toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
     // SMS to tenant
     if (mobile) {
       try {
         const msg = sms.templates.leaseRenewalNotice({ tenantName, unit, endDate: endDateStr, daysLeft });
-        await sms.send(mobile, msg);
+        await sendSmsWithTenant(sms, mobile, msg, tenantContext);
       } catch (err) {
         logger.error('Failed to send lease renewal SMS', { lease: lease.name, error: err.message });
       }
@@ -165,7 +203,7 @@ async function runLeaseRenewalCheck() {
     // Mark notice sent in ERPNext
     try {
       await api.updateLease(lease.name, {
-        custom_renewal_notice_sent: today.toISOString().split('T')[0],
+        custom_renewal_notice_sent: todayStr,
       });
     } catch (err) {
       logger.error('Failed to update custom_renewal_notice_sent', { lease: lease.name, error: err.message });
@@ -183,9 +221,10 @@ async function runLeaseRenewalCheck() {
     const lines = alerts.map(a =>
       `  • ${a.tenantName} — ${a.unit}: ${a.daysLeft} days (${a.endDateStr})`
     ).join('\n');
-    await notifyLandlord(
+    await notifyWithTenant(notifyLandlord,
       `📋 Lease renewal reminders sent (${alerts.length}):\n${lines}\n\n` +
-      'Reply "renew [lease]", "vacate [lease]", or ask me for details.'
+      'Reply "renew [lease]", "vacate [lease]", or ask me for details.',
+      tenantContext
     );
   } catch (err) {
     logger.error('Failed to send Telegram lease renewal summary', { error: err.message });
@@ -207,9 +246,11 @@ async function runLeaseRenewalCheck() {
  *   "1"  → docstatus=1 (submitted, immediately visible on tenant's portal)
  *   "0"  → docstatus=0 (draft, accountant must review before submitting)
  */
-async function runLateFeeCheck() {
+async function runLateFeeCheck(options = {}) {
   const notifyLandlord = getNotifyLandlord();
   const sms            = getSms();
+  const tenantContext  = options.tenantContext || null;
+  const api = getApiClient(tenantContext);
   const autoSubmit     = process.env.LATE_FEE_AUTO_SUBMIT === '1';
   const today          = new Date().toISOString().split('T')[0];
 
@@ -315,7 +356,7 @@ async function runLateFeeCheck() {
             totalDue:  outstandingAmt + feeAmount,
             dayNumber: daysOD,
           });
-          await sms.send(mobile, msg);
+          await sendSmsWithTenant(sms, mobile, msg, tenantContext);
         } catch (err) {
           logger.error('Failed to send late fee SMS', { tenant: inv.tenantName, error: err.message });
         }
@@ -333,8 +374,9 @@ async function runLateFeeCheck() {
     const lines = applied.map(a =>
       `  • ${a.tenantName} — ${a.unitName}: $${a.feeAmount.toFixed(2)} (day ${a.daysOD} overdue)`
     ).join('\n');
-    await notifyLandlord(
-      `💸 Late fees applied today: ${applied.length} invoice(s) ${submitNote}\n${lines}`
+    await notifyWithTenant(notifyLandlord,
+      `💸 Late fees applied today: ${applied.length} invoice(s) ${submitNote}\n${lines}`,
+      tenantContext
     );
   } catch (err) {
     logger.error('Failed to send Telegram late fee summary', { error: err.message });
@@ -346,8 +388,10 @@ async function runLateFeeCheck() {
 /**
  * Alert the landlord about open maintenance tickets older than the threshold.
  */
-async function runStaleWorkOrderCheck() {
+async function runStaleWorkOrderCheck(options = {}) {
   const notifyLandlord = getNotifyLandlord();
+  const tenantContext  = options.tenantContext || null;
+  const api = getApiClient(tenantContext);
 
   let tickets;
   try {
@@ -368,7 +412,7 @@ async function runStaleWorkOrderCheck() {
     ).join('\n');
 
   try {
-    await notifyLandlord(message);
+    await notifyWithTenant(notifyLandlord, message, tenantContext);
   } catch (err) {
     logger.error('Failed to send stale work order alert', { error: err.message });
   }
@@ -380,11 +424,10 @@ async function runStaleWorkOrderCheck() {
  * Send a weekly portfolio summary to the landlord via Telegram.
  * Covers: outstanding balances, open work orders, leases expiring within 60 days.
  */
-async function runWeeklyReport() {
+async function runWeeklyReport(options = {}) {
   const notifyLandlord = getNotifyLandlord();
-
-  const today    = new Date().toISOString().split('T')[0];
-  const in60days = new Date(Date.now() + 60 * 86_400_000).toISOString().split('T')[0];
+  const tenantContext  = options.tenantContext || null;
+  const api = getApiClient(tenantContext);
 
   let overdue = [], tickets = [], leases = [];
 
@@ -447,7 +490,7 @@ async function runWeeklyReport() {
   logger.info('Weekly report sending', { overdue: overdueFiltered.length, tickets: openTickets.length, leases: (leases||[]).length });
 
   try {
-    await notifyLandlord(lines.join('\n'));
+    await notifyWithTenant(notifyLandlord, lines.join('\n'), tenantContext);
   } catch (err) {
     logger.error('Failed to send weekly report Telegram message', { error: err.message });
   }

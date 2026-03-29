@@ -629,6 +629,31 @@ class ERPNextClient {
     });
     return all.filter(t => t.customer === customerId);
   }
+
+  /**
+   * Create a tenant maintenance ticket linked to the tenant's customer record.
+   * @param {string} customerId
+   * @param {Object} payload
+   * @param {string} payload.subject
+   * @param {string} [payload.description]
+   * @param {string} [payload.priority]
+   * @param {string} [payload.raisedBy]
+   */
+  async createTenantTicket(customerId, { subject, description, priority, raisedBy } = {}) {
+    const cleanSubject = String(subject || '').trim();
+    if (!cleanSubject) throw new Error('subject is required');
+
+    const cleanPriority = String(priority || 'Medium').trim() || 'Medium';
+    const cleanDescription = String(description || '').trim();
+
+    return this._post('HD Ticket', {
+      customer: customerId,
+      subject: cleanSubject,
+      description: cleanDescription,
+      priority: cleanPriority,
+      ...(raisedBy ? { raised_by: String(raisedBy).trim() } : {}),
+    });
+  }
 }
 
 module.exports = ERPNextClient;

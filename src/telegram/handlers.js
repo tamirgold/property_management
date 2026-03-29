@@ -20,12 +20,17 @@ const { chat } = require('../ai/openai');
 
 const MAX_HISTORY_TURNS = 20; // pairs of user+assistant messages
 
-// In-memory session store keyed by Telegram userId
+// In-memory session store keyed by tenantId + Telegram userId
 const sessions = new Map();
 
-function getHistory(userId) {
-  if (!sessions.has(userId)) sessions.set(userId, []);
-  return sessions.get(userId);
+function historyKey(userId, tenantId) {
+  return `${tenantId || 'default'}:${userId}`;
+}
+
+function getHistory(userId, tenantId) {
+  const key = historyKey(userId, tenantId);
+  if (!sessions.has(key)) sessions.set(key, []);
+  return sessions.get(key);
 }
 
 function trimHistory(history) {
@@ -79,7 +84,7 @@ async function handleHelp(bot, msg) {
 // ─── /clear ──────────────────────────────────────────────────────────────────
 
 async function handleClear(bot, msg) {
-  sessions.delete(msg.from.id);
+  sessions.delete(historyKey(msg.from.id, msg.tenantContext?.tenantId));
   await bot.sendMessage(msg.chat.id, '🗑️ Conversation history cleared. Starting fresh!');
 }
 
@@ -95,19 +100,22 @@ async function handleChatId(bot, msg) {
 
 // ─── Free-form NLP message ────────────────────────────────────────────────────
 
-async function handleMessage(bot, msg) {
+async function handleMessage(bot, msg, options = {}) {
   const userId = msg.from.id;
   const text = msg.text?.trim();
+  const tenantContext = options.tenantContext || msg.tenantContext || null;
 
   if (!text) return;
 
   // Show typing indicator while the AI processes the request
   await bot.sendChatAction(msg.chat.id, 'typing');
 
-  const history = getHistory(userId);
+  const history = getHistory(userId, tenantContext?.tenantId);
 
   try {
-    const reply = await chat(text, history);
+    const reply = tenantContext
+      ? await chat(text, history, { tenantContext })
+      : await chat(text, history);
     trimHistory(history);
     await bot.sendMessage(msg.chat.id, reply, { parse_mode: 'Markdown' });
   } catch (err) {

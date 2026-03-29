@@ -11,9 +11,18 @@
 const axios  = require('axios');
 const logger = require('../logger');
 
-const SID   = process.env.TWILIO_ACCOUNT_SID   || '';
-const TOKEN = process.env.TWILIO_AUTH_TOKEN     || '';
-const FROM  = process.env.TWILIO_FROM_NUMBER    || '';
+const SID   = process.env.TWILIO_ACCOUNT_SID || '';
+const TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
+const FROM  = process.env.TWILIO_FROM_NUMBER || '';
+
+function getTwilioConfig(options = {}) {
+  const tenantTwilio = options.tenantContext?.integrations?.twilio || {};
+  return {
+    sid: tenantTwilio.accountSid || SID,
+    token: tenantTwilio.authToken || TOKEN,
+    from: tenantTwilio.fromNumber || FROM,
+  };
+}
 
 /**
  * Send an SMS message via Twilio.
@@ -21,8 +30,10 @@ const FROM  = process.env.TWILIO_FROM_NUMBER    || '';
  * @param {string} body    Message text (≤320 chars for SMS, longer for MMS)
  * @returns {Promise<{ sid: string }>}
  */
-async function send(to, body) {
-  if (!SID || !TOKEN || !FROM) {
+async function send(to, body, options = {}) {
+  const twilio = getTwilioConfig(options);
+
+  if (!twilio.sid || !twilio.token || !twilio.from) {
     logger.warn('SMS send skipped — Twilio credentials not configured', { to });
     return { sid: 'SKIPPED' };
   }
@@ -32,10 +43,10 @@ async function send(to, body) {
   const httpsAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
 
   const { data } = await axios.post(
-    `https://api.twilio.com/2010-04-01/Accounts/${SID}/Messages.json`,
-    new URLSearchParams({ To: to, From: FROM, Body: body }).toString(),
+    `https://api.twilio.com/2010-04-01/Accounts/${twilio.sid}/Messages.json`,
+    new URLSearchParams({ To: to, From: twilio.from, Body: body }).toString(),
     {
-      auth: { username: SID, password: TOKEN },
+      auth: { username: twilio.sid, password: twilio.token },
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       ...(httpsAgent ? { httpsAgent, proxy: false } : {}),
     }

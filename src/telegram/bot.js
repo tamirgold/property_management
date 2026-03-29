@@ -17,10 +17,12 @@
  */
 
 const TelegramBot = require('node-telegram-bot-api');
+const axios = require('axios');
 const logger = require('../logger');
 const { config } = require('../config');
 const { guard } = require('./security');
 const { handleStart, handleHelp, handleClear, handleChatId, handleMessage } = require('./handlers');
+const { getTenantContextForTelegramPrincipal, getDefaultTenantContext } = require('../platform/runtime');
 
 let bot = null;
 let botInfo = null; // populated by getMe() – used for @mention + reply-to detection
@@ -74,35 +76,60 @@ function parseGroupMessage(msg) {
 
 // ─── Handler registration ─────────────────────────────────────────────────────
 
+async function resolveTenantContext(msg) {
+  if (msg.__tenantContext) return msg.__tenantContext;
+
+  const userId = msg?.from?.id;
+  const chatId = msg?.chat?.id;
+
+  const byPrincipal = await getTenantContextForTelegramPrincipal({ userId, chatId });
+  msg.__tenantContext = byPrincipal || await getDefaultTenantContext();
+  return msg.__tenantContext;
+}
+
+async function resolveAllowList(msg) {
+  const tenantContext = await resolveTenantContext(msg);
+  const telegram = tenantContext?.integrations?.telegram || {};
+  return {
+    allowedUserIds: telegram.allowedUserIds || [...config.telegram.allowedUserIds],
+    allowedGroupIds: telegram.allowedGroupIds || [...config.telegram.allowedGroupIds],
+  };
+}
+
 /**
  * Attaches all message handlers to a bot instance.
  * Called for both polling bots and webhook-mode bots.
  */
 function _registerHandlers(b) {
   b.onText(/^\/start(@\w+)?$/, guard(async (msg) => {
-    await handleStart(b, msg);
-  }));
+    const tenantContext = await resolveTenantContext(msg);
+    await handleStart(b, { ...msg, tenantContext });
+  }, { resolveAllowList }));
 
   b.onText(/^\/help(@\w+)?$/, guard(async (msg) => {
-    await handleHelp(b, msg);
-  }));
+    const tenantContext = await resolveTenantContext(msg);
+    await handleHelp(b, { ...msg, tenantContext });
+  }, { resolveAllowList }));
 
   b.onText(/^\/clear(@\w+)?$/, guard(async (msg) => {
-    await handleClear(b, msg);
-  }));
+    const tenantContext = await resolveTenantContext(msg);
+    await handleClear(b, { ...msg, tenantContext });
+  }, { resolveAllowList }));
 
   b.onText(/^\/chatid(@\w+)?$/, guard(async (msg) => {
-    await handleChatId(b, msg);
-  }));
+    const tenantContext = await resolveTenantContext(msg);
+    await handleChatId(b, { ...msg, tenantContext });
+  }, { resolveAllowList }));
 
   b.on('message', guard(async (msg) => {
     if (msg.text?.startsWith('/')) return;
 
+    const tenantContext = await resolveTenantContext(msg);
     const { addressed, text } = parseGroupMessage(msg);
     if (!addressed) return;
 
-    await handleMessage(b, { ...msg, text });
-  }));
+    await handleMessage(b, { ...msg, text, tenantContext }, { tenantContext });
+  }, { resolveAllowList }));
 
   b.on('polling_error', (err) => {
     logger.error('Telegram polling error', { error: err.message, code: err.code });
@@ -209,24 +236,38 @@ async function processUpdate(update) {
  * Push a message to all whitelisted landlord users and groups.
  * Works in both polling and webhook mode.
  */
-async function notifyLandlord(text) {
-  const b = _getOrCreateBot();
+async function notifyLandlord(text, options = {}) {
+  const tenantContext = options.tenantContext || null;
 
-  // When a group is configured, send reports/alerts there only — not to
-  // individual DMs.  The personal user IDs are kept in allowedUserIds for
-  // command *authorization* purposes; they are not notification targets when a
-  // group chat already covers the landlord.
-  const recipients = config.telegram.allowedGroupIds.size > 0
-    ? [...config.telegram.allowedGroupIds]
+  const tenantTelegram = tenantContext?.integrations?.telegram || null;
+  const token = tenantTelegram?.botToken || config.telegram.botToken;
+  const recipientUsers = Array.isArray(tenantTelegram?.allowedUserIds)
+    ? tenantTelegram.allowedUserIds
     : [...config.telegram.allowedUserIds];
+  const recipientGroups = Array.isArray(tenantTelegram?.allowedGroupIds)
+    ? tenantTelegram.allowedGroupIds
+    : [...config.telegram.allowedGroupIds];
 
-  // Do NOT use parse_mode here: notifications embed raw user data (emails,
-  // names, ticket IDs) which may contain Markdown special characters such as
-  // '_' (italics) or '[' (link) that cause Telegram to reject the message.
+  const recipients = recipientGroups.length > 0 ? recipientGroups : recipientUsers;
+
+  if (!token || recipients.length === 0) {
+    logger.warn('Telegram notification skipped — no token or recipients configured');
+    return;
+  }
+
+  const sendDirect = async (recipientId) => {
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: recipientId,
+      text,
+      disable_web_page_preview: true,
+    });
+  };
+
+  const useBotInstance = token === config.telegram.botToken;
+  const b = useBotInstance ? _getOrCreateBot() : null;
+
   const results = await Promise.allSettled(
-    recipients.map((id) =>
-      b.sendMessage(id, text)
-    )
+    recipients.map((id) => (useBotInstance ? b.sendMessage(id, text) : sendDirect(id)))
   );
 
   results.forEach((r, i) => {

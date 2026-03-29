@@ -60,18 +60,21 @@ const config = {
 
 function validate() {
   const errors = [];
+  const multiTenant = process.env.PLATFORM_MULTI_TENANT === '1';
 
-  if (!config.telegram.botToken)
-    errors.push('TELEGRAM_BOT_TOKEN is required');
-  if (config.telegram.allowedUserIds.size === 0)
-    errors.push('TELEGRAM_ALLOWED_USER_IDS must contain at least one Telegram user ID');
-  if (!config.openai.apiKey)
-    errors.push('OPENAI_API_KEY is required');
+  if (!multiTenant) {
+    if (!config.telegram.botToken)
+      errors.push('TELEGRAM_BOT_TOKEN is required');
+    if (config.telegram.allowedUserIds.size === 0)
+      errors.push('TELEGRAM_ALLOWED_USER_IDS must contain at least one Telegram user ID');
+    if (!config.openai.apiKey)
+      errors.push('OPENAI_API_KEY is required');
 
-  // ERPNext connection (used by the AI agentic loop)
-  if (!config.pms.erpnext.baseUrl)   errors.push('ERPNEXT_BASE_URL is required');
-  if (!config.pms.erpnext.apiKey)    errors.push('ERPNEXT_API_KEY is required');
-  if (!config.pms.erpnext.apiSecret) errors.push('ERPNEXT_API_SECRET is required');
+    // ERPNext connection (used by the AI agentic loop)
+    if (!config.pms.erpnext.baseUrl)   errors.push('ERPNEXT_BASE_URL is required');
+    if (!config.pms.erpnext.apiKey)    errors.push('ERPNEXT_API_KEY is required');
+    if (!config.pms.erpnext.apiSecret) errors.push('ERPNEXT_API_SECRET is required');
+  }
 
   if (errors.length) {
     throw new Error(`Configuration errors:\n  • ${errors.join('\n  • ')}`);

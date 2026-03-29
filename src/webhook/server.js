@@ -23,11 +23,37 @@ const axios   = require('axios');
 const crypto  = require('crypto');
 const logger  = require('../logger');
 const { config } = require('../config');
+const { getTenantContextFromRequest } = require('../platform/runtime');
+const { makePlatformRouter } = require('../platform/router');
+const apiRoot = require('../api/index');
+
+function getTenantApi(tenantContext) {
+  if (process.env.PLATFORM_MULTI_TENANT !== '1') {
+    return apiRoot;
+  }
+  if (tenantContext && typeof apiRoot.forTenant === 'function') {
+    return apiRoot.forTenant(tenantContext);
+  }
+  return apiRoot;
+}
+
+function getIntegration(req, name) {
+  if (process.env.PLATFORM_MULTI_TENANT !== '1') return {};
+  return req.tenantContext?.integrations?.[name] || {};
+}
+
+function notifyLandlordScoped(notifyLandlord, text, tenantContext) {
+  if (process.env.PLATFORM_MULTI_TENANT === '1' && tenantContext) {
+    return notifyLandlord(text, { tenantContext });
+  }
+  return notifyLandlord(text);
+}
 
 // ── HMAC-SHA256 signature validation for ERPNext webhooks ─────────────────────
 
 function validateSignature(req, res, next) {
-  const secret = config.webhook?.secret || process.env.WEBHOOK_SECRET || '';
+  const tenantSecret = getIntegration(req, 'erpnext').webhookSecret || '';
+  const secret = tenantSecret || config.webhook?.secret || process.env.WEBHOOK_SECRET || '';
   if (!secret) return next(); // skip when no secret is configured (dev mode)
 
   const sig  = req.headers['x-frappe-webhook-signature'] || '';
@@ -97,10 +123,10 @@ function ensureRawBody(req, _res, next) {
 //     }
 //   }
 
-async function handleBoldSignCompleted(body) {
+async function handleBoldSignCompleted(body, tenantContext) {
   const { handle } = require('./handlers');
   const boldSign = require('../api/boldsign');
-  const api      = require('../api/index');
+  const api = getTenantApi(tenantContext);
 
   const documentId = body?.data?.documentId;
   if (!documentId) return;
@@ -139,9 +165,12 @@ async function handleBoldSignCompleted(body) {
 
   // Attach PDF to the Lease record and mark signed
   if (lease && pdfBuffer && pdfBuffer.length > 0) {
-    const erpnextBase = (process.env.ERPNEXT_BASE_URL || '').replace(/\/$/, '');
-    const erpnextKey  = process.env.ERPNEXT_API_KEY;
-    const erpnextSec  = process.env.ERPNEXT_API_SECRET;
+    const erpCfg = process.env.PLATFORM_MULTI_TENANT === '1'
+      ? (tenantContext?.integrations?.erpnext || {})
+      : {};
+    const erpnextBase = (erpCfg.baseUrl || process.env.ERPNEXT_BASE_URL || '').replace(/\/$/, '');
+    const erpnextKey  = erpCfg.apiKey || process.env.ERPNEXT_API_KEY;
+    const erpnextSec  = erpCfg.apiSecret || process.env.ERPNEXT_API_SECRET;
 
     if (erpnextBase && erpnextKey && erpnextSec) {
       const { HttpsProxyAgent } = require('https-proxy-agent');
@@ -187,6 +216,7 @@ async function handleBoldSignCompleted(body) {
   // Fire lease.signed event (Telegram + tenant SMS)
   await handle({
     type: 'lease.signed',
+    tenantContext,
     data: {
       documentId,
       tenantName:  tenantDoc?.customer_name || tenantEmail,
@@ -199,9 +229,9 @@ async function handleBoldSignCompleted(body) {
 
 // ── SmartMove screening completed handler ─────────────────────────────────────
 
-async function handleSmartMoveCompleted(body) {
+async function handleSmartMoveCompleted(body, tenantContext) {
   const notifyLandlord = require('../telegram/bot').notifyLandlord;
-  const api            = require('../api/index');
+  const api = getTenantApi(tenantContext);
 
   const applicantEmail = body?.applicant_email || '';
   const reportType     = body?.report_type     || 'Standard';
@@ -226,13 +256,14 @@ async function handleSmartMoveCompleted(body) {
   const evictionSummary = result.eviction_records > 0 ? 'See report' : 'Clear';
   const dashboardUrl    = 'https://www.mysmartmove.com/SmartMove/login.go';
 
-  await notifyLandlord(
+  await notifyLandlordScoped(notifyLandlord,
     `✅ Screening complete: ${applicantEmail}\n` +
     `  Credit:   ${creditSummary}\n` +
     `  Criminal: ${criminalSummary}\n` +
     `  Eviction: ${evictionSummary}\n` +
     `  Report type: ${reportType}\n` +
-    `  View full report: ${dashboardUrl}`
+    `  View full report: ${dashboardUrl}`,
+    tenantContext
   );
 }
 
@@ -240,6 +271,15 @@ async function handleSmartMoveCompleted(body) {
 
 function makeWebhookRouter() {
   const router = express.Router();
+
+  router.use(async (req, _res, next) => {
+    try {
+      req.tenantContext = req.tenantContext || await getTenantContextFromRequest(req);
+      next();
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.get('/health', (_req, res) => {
     res.json({ status: 'ok', ts: new Date().toISOString() });
@@ -253,6 +293,7 @@ function makeWebhookRouter() {
     const d = req.body;
     handle({
       type: 'rent.overdue',
+      tenantContext: req.tenantContext,
       data: {
         invoiceId:   d.name,
         tenantId:    d.customer,
@@ -270,6 +311,7 @@ function makeWebhookRouter() {
     const d = req.body;
     handle({
       type: 'payment.received',
+      tenantContext: req.tenantContext,
       data: {
         paymentId:     d.name,
         tenantId:      d.party,
@@ -286,6 +328,7 @@ function makeWebhookRouter() {
     const d = req.body;
     handle({
       type: 'workorder.created',
+      tenantContext: req.tenantContext,
       data: {
         ticketId:   d.name,
         subject:    d.subject,
@@ -301,6 +344,7 @@ function makeWebhookRouter() {
     const d = req.body;
     handle({
       type: 'lease.created',
+      tenantContext: req.tenantContext,
       data: {
         leaseId:     d.name,
         tenantName:  d.tenant_name,
@@ -317,6 +361,7 @@ function makeWebhookRouter() {
     const d = req.body;
     handle({
       type: 'lease.expired',
+      tenantContext: req.tenantContext,
       data: {
         leaseId:    d.name,
         tenantName: d.tenant_name,
@@ -331,6 +376,7 @@ function makeWebhookRouter() {
     const d = req.body;
     handle({
       type: 'application.submitted',
+      tenantContext: req.tenantContext,
       data: {
         leadName:           d.name,
         firstName:          d.first_name  || '',
@@ -352,7 +398,10 @@ function makeWebhookRouter() {
   //   Payload: "<timestamp>.<rawJsonBody>"
   //   Secret:  BOLDSIGN_WEBHOOK_SECRET
   router.post('/boldsign/completed', async (req, res) => {
-    const webhookSecret = process.env.BOLDSIGN_WEBHOOK_SECRET || '';
+    const webhookSecret = (process.env.PLATFORM_MULTI_TENANT === '1'
+      ? req.tenantContext?.settings?.boldsignWebhookSecret
+      : '') ||
+      process.env.BOLDSIGN_WEBHOOK_SECRET || '';
     const sigHeader     = req.headers['x-boldsign-signature'] || '';
     const rawBody       = req.rawBody || JSON.stringify(req.body);
 
@@ -396,7 +445,7 @@ function makeWebhookRouter() {
 
     if (req.body?.eventType !== 'Completed') return;
 
-    setImmediate(() => handleBoldSignCompleted(req.body).catch(err =>
+    setImmediate(() => handleBoldSignCompleted(req.body, req.tenantContext).catch(err =>
       logger.error('BoldSign completed handler error', { error: err.message })
     ));
   });
@@ -405,7 +454,7 @@ function makeWebhookRouter() {
   router.post('/smartmove/completed', async (req, res) => {
     res.json({ received: true });
     const d = req.body || {};
-    setImmediate(() => handleSmartMoveCompleted(d).catch(err =>
+    setImmediate(() => handleSmartMoveCompleted(d, req.tenantContext).catch(err =>
       logger.error('SmartMove completed handler error', { error: err.message })
     ));
   });
@@ -469,7 +518,7 @@ function makeWebhookRouter() {
     // ── Identify tenant by phone number ──────────────────────────────────────
     setImmediate(async () => {
       try {
-        const api = require('../api/index');
+        const api = getTenantApi(req.tenantContext);
         const { notifyLandlord } = require('../telegram/bot');
 
         // Normalise both numbers to digits-only for comparison
@@ -496,7 +545,7 @@ function makeWebhookRouter() {
         const unitSuffix = unitLabel ? ` (${unitLabel})` : '';
         const message    = `📱 SMS from ${tenantLabel}${unitSuffix}:\n"${body}"`;
 
-        await notifyLandlord(message);
+        await notifyLandlordScoped(notifyLandlord, message, req.tenantContext);
         logger.info('Twilio inbound: forwarded to Telegram', { from, tenant: tenantLabel });
       } catch (err) {
         logger.error('Twilio inbound: failed to forward to Telegram', { error: err.message });
@@ -516,6 +565,15 @@ function makeWebhookRouter() {
 function makeCheckoutRouter() {
   const router = express.Router();
 
+  router.use(async (req, _res, next) => {
+    try {
+      req.tenantContext = req.tenantContext || await getTenantContextFromRequest(req);
+      next();
+    } catch (err) {
+      next(err);
+    }
+  });
+
   /**
    * GET /checkout?invoice_name=ACC-SINV-2026-00009[&method=ach|card]
    *
@@ -533,10 +591,13 @@ function makeCheckoutRouter() {
       return res.status(400).send('method must be "ach" or "card"');
     }
 
-    const stripeSecretKey = config.stripe?.secretKey || process.env.STRIPE_SECRET_KEY;
-    const erpnextBase     = (process.env.ERPNEXT_BASE_URL || '').replace(/\/$/, '');
-    const erpnextKey      = process.env.ERPNEXT_API_KEY;
-    const erpnextSec      = process.env.ERPNEXT_API_SECRET;
+    const stripeCfg = getIntegration(req, 'stripe');
+    const erpCfg = getIntegration(req, 'erpnext');
+
+    const stripeSecretKey = stripeCfg.secretKey || config.stripe?.secretKey || process.env.STRIPE_SECRET_KEY;
+    const erpnextBase     = (erpCfg.baseUrl || process.env.ERPNEXT_BASE_URL || '').replace(/\/$/, '');
+    const erpnextKey      = erpCfg.apiKey || process.env.ERPNEXT_API_KEY;
+    const erpnextSec      = erpCfg.apiSecret || process.env.ERPNEXT_API_SECRET;
 
     if (!stripeSecretKey) {
       logger.error('STRIPE_SECRET_KEY not configured');
@@ -573,7 +634,7 @@ function makeCheckoutRouter() {
       const customerEmail = custData.data.email_id || '';
 
       // Apply credit-card surcharge when method=card
-      const CARD_SURCHARGE_PCT = parseFloat(process.env.CARD_SURCHARGE_PCT || '3') / 100;
+      const CARD_SURCHARGE_PCT = parseFloat(req.tenantContext?.settings?.cardSurchargePct || process.env.CARD_SURCHARGE_PCT || '3') / 100;
       const baseAmount  = inv.outstanding_amount;
       const isCard      = method === 'card';
       const finalAmount = isCard
@@ -601,6 +662,7 @@ function makeCheckoutRouter() {
         'cancel_url':  `${erpnextBase}/invoices`,
         'metadata[invoice]': invoiceName,
         'metadata[tenant]':  inv.customer_name || '',
+        'metadata[tenant_id]': req.tenantContext?.tenantId || '',
         'metadata[method]':  method,
       });
 
@@ -697,10 +759,13 @@ function validateStripeSignature(rawBody, header, secret) {
  * docstatus=1 (submitted) when STRIPE_BANK_ACCOUNT is configured,
  * docstatus=0 (draft)     otherwise — accountant reviews before posting.
  */
-async function recordStripePaymentInERPNext(erpHttp, { invoiceName, amountCents, paymentMethod, stripeSessionId }) {
+async function recordStripePaymentInERPNext(erpHttp, { invoiceName, amountCents, paymentMethod, stripeSessionId, tenantContext }) {
   const amount      = amountCents / 100;
-  const arAccount   = config.stripe?.paymentAccount || 'Debtors - LD';
-  const bankAccount = config.stripe?.bankAccount    || '';
+  const stripeCfg = process.env.PLATFORM_MULTI_TENANT === '1'
+    ? (tenantContext?.integrations?.stripe || {})
+    : {};
+  const arAccount   = stripeCfg.paymentAccount || config.stripe?.paymentAccount || 'Debtors - LD';
+  const bankAccount = stripeCfg.bankAccount || config.stripe?.bankAccount || '';
   const modeOfPayment = paymentMethod === 'us_bank_account' ? 'Wire Transfer' : 'Credit Card';
 
   // Fetch invoice to get customer / company context
@@ -746,8 +811,18 @@ async function recordStripePaymentInERPNext(erpHttp, { invoiceName, amountCents,
 function makeStripeWebhookRouter() {
   const router = express.Router();
 
+  router.use(async (req, _res, next) => {
+    try {
+      req.tenantContext = req.tenantContext || await getTenantContextFromRequest(req);
+      next();
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post('/stripe', async (req, res) => {
-    const webhookSecret = config.stripe?.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET || '';
+    const webhookSecret = getIntegration(req, 'stripe').webhookSecret ||
+      config.stripe?.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET || '';
     const sigHeader     = req.headers['stripe-signature'] || '';
     const rawBody       = req.rawBody || JSON.stringify(req.body);
 
@@ -771,7 +846,7 @@ function makeStripeWebhookRouter() {
     res.json({ received: true });
 
     // Process asynchronously so a slow ERPNext call doesn't delay the 200
-    setImmediate(() => handleStripeEvent(event).catch(err =>
+    setImmediate(() => handleStripeEvent(event, req.tenantContext).catch(err =>
       logger.error('Stripe webhook handler error', { type: event?.type, error: err.message })
     ));
   });
@@ -779,7 +854,7 @@ function makeStripeWebhookRouter() {
   return router;
 }
 
-async function handleStripeEvent(event) {
+async function handleStripeEvent(event, tenantContext) {
   const { handle: handleErpEvent } = require('./handlers');
   const type    = event.type;
   const session = event.data?.object;
@@ -788,13 +863,13 @@ async function handleStripeEvent(event) {
 
   // ── Card payment: confirmed synchronously at checkout ──────────────────────
   if (type === 'checkout.session.completed' && session?.payment_status === 'paid') {
-    await onPaymentConfirmed(session, 'card', handleErpEvent);
+    await onPaymentConfirmed(session, 'card', handleErpEvent, tenantContext);
     return;
   }
 
   // ── ACH: payment cleared (1-5 business days after checkout) ───────────────
   if (type === 'checkout.session.async_payment_succeeded') {
-    await onPaymentConfirmed(session, 'us_bank_account', handleErpEvent);
+    await onPaymentConfirmed(session, 'us_bank_account', handleErpEvent, tenantContext);
     return;
   }
 
@@ -806,6 +881,7 @@ async function handleStripeEvent(event) {
     logger.warn('ACH payment failed', { invoice: invoiceName, tenant: tenantName });
     await handleErpEvent({
       type: 'payment.failed',
+      tenantContext,
       data: { invoiceName, tenantName, amount },
     }).catch(() => {});
     return;
@@ -819,13 +895,14 @@ async function handleStripeEvent(event) {
     logger.info('ACH payment initiated — awaiting bank confirmation', { invoice: invoiceName });
     await handleErpEvent({
       type: 'payment.pending',
+      tenantContext,
       data: { invoiceName, tenantName, amount },
     }).catch(() => {});
     return;
   }
 }
 
-async function onPaymentConfirmed(session, paymentMethod, handleErpEvent) {
+async function onPaymentConfirmed(session, paymentMethod, handleErpEvent, tenantContext) {
   const invoiceName = session?.metadata?.invoice;
   const tenantName  = session?.metadata?.tenant || 'unknown';
   const amountCents = session?.amount_total || 0;
@@ -836,9 +913,12 @@ async function onPaymentConfirmed(session, paymentMethod, handleErpEvent) {
     return;
   }
 
-  const erpnextBase = (process.env.ERPNEXT_BASE_URL || '').replace(/\/$/, '');
-  const erpnextKey  = process.env.ERPNEXT_API_KEY;
-  const erpnextSec  = process.env.ERPNEXT_API_SECRET;
+  const erpCfg = process.env.PLATFORM_MULTI_TENANT === '1'
+    ? (tenantContext?.integrations?.erpnext || {})
+    : {};
+  const erpnextBase = (erpCfg.baseUrl || process.env.ERPNEXT_BASE_URL || '').replace(/\/$/, '');
+  const erpnextKey  = erpCfg.apiKey || process.env.ERPNEXT_API_KEY;
+  const erpnextSec  = erpCfg.apiSecret || process.env.ERPNEXT_API_SECRET;
 
   let peResult = null;
   if (erpnextBase && erpnextKey && erpnextSec) {
@@ -859,6 +939,7 @@ async function onPaymentConfirmed(session, paymentMethod, handleErpEvent) {
         amountCents,
         paymentMethod,
         stripeSessionId: session.id,
+        tenantContext,
       });
       logger.info('Payment Entry created', { name: peResult.name, submitted: peResult.submitted, invoice: invoiceName });
     } catch (err) {
@@ -878,6 +959,7 @@ async function onPaymentConfirmed(session, paymentMethod, handleErpEvent) {
 
   await handleErpEvent({
     type: 'payment.received',
+    tenantContext,
     data: {
       invoiceId:     invoiceName,
       tenantName,
@@ -980,13 +1062,23 @@ function renderPaymentHistoryHtml(tenantName, payments) {
 function makePaymentHistoryRouter() {
   const router = express.Router();
 
+  router.use(async (req, _res, next) => {
+    try {
+      req.tenantContext = req.tenantContext || await getTenantContextFromRequest(req);
+      next();
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get('/payment-history', async (req, res) => {
     const email = (req.query.email || '').trim().toLowerCase();
     if (!email || !email.includes('@')) {
       return res.status(400).send('Valid email query parameter is required');
     }
 
-    const stripeSecretKey = config.stripe?.secretKey || process.env.STRIPE_SECRET_KEY;
+    const stripeSecretKey = getIntegration(req, 'stripe').secretKey ||
+      config.stripe?.secretKey || process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) {
       return res.status(500).send('Payment gateway not configured');
     }
@@ -1071,11 +1163,20 @@ function makePaymentHistoryRouter() {
 // Called by the ERPNext /apply Web Form client_script to populate the property
 // interest dropdown for prospective tenants.
 function makePublicApiRouter() {
-  const api    = require('../api/index');
   const router = express.Router();
+
+  router.use(async (req, _res, next) => {
+    try {
+      req.tenantContext = req.tenantContext || await getTenantContextFromRequest(req);
+      next();
+    } catch (err) {
+      next(err);
+    }
+  });
 
   router.get('/api/properties-for-apply', async (req, res) => {
     try {
+      const api = getTenantApi(req.tenantContext);
       const [properties, leases] = await Promise.all([
         api.getProperties(),
         api.getLeases({ status: 'active' }),
@@ -1134,10 +1235,21 @@ function makeAdminRouter() {
   const path   = require('path');
   const cron   = require('../automation/cron');
   const router = express.Router();
+  const multiTenant = process.env.PLATFORM_MULTI_TENANT === '1';
 
-  // Serve the admin HTML page
+  // Serve admin UI:
+  // - Multi-tenant mode: SaaS control center at /admin, legacy scheduler at /admin/legacy
+  // - Single-tenant mode: legacy scheduler at /admin
   router.get('/', (_req, res) => {
-    res.sendFile(path.resolve(__dirname, '../admin.html'));
+    const fileName = multiTenant ? '../admin-saas.html' : '../admin.html';
+    res.sendFile(path.resolve(__dirname, fileName));
+  });
+
+  router.get('/legacy', (_req, res) => {
+    if (!multiTenant) {
+      return res.redirect(302, '/admin');
+    }
+    return res.sendFile(path.resolve(__dirname, '../admin.html'));
   });
 
   // GET /admin/api/scheduler-status – returns all job statuses
@@ -1180,15 +1292,35 @@ function makeAdminRouter() {
 
 function createWebhookApp() {
   const app = express();
+
+  const tenantContextMiddleware = async (req, _res, next) => {
+    try {
+      req.tenantContext = req.tenantContext || await getTenantContextFromRequest(req);
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+
   app.use(express.json({ verify: captureRawBody }));
   app.use(express.urlencoded({ extended: true, verify: captureRawBody }));
   app.use(ensureRawBody); // fallback: capture raw body for unrecognised Content-Types
-  app.use('/webhooks', makeWebhookRouter());
-  app.use('/webhooks', makeStripeWebhookRouter());
+  app.use('/api/v2', makePlatformRouter());
+
+  app.use('/webhooks', tenantContextMiddleware, makeWebhookRouter());
+  app.use('/webhooks', tenantContextMiddleware, makeStripeWebhookRouter());
+  app.use('/webhooks/t/:tenantKey', tenantContextMiddleware, makeWebhookRouter());
+  app.use('/webhooks/t/:tenantKey', tenantContextMiddleware, makeStripeWebhookRouter());
+
   app.use('/admin', makeAdminRouter());
-  app.use('/', makePublicApiRouter());
-  app.use('/', makeCheckoutRouter());
-  app.use('/', makePaymentHistoryRouter());
+  app.use('/', tenantContextMiddleware, makePublicApiRouter());
+  app.use('/', tenantContextMiddleware, makeCheckoutRouter());
+  app.use('/', tenantContextMiddleware, makePaymentHistoryRouter());
+
+  app.use('/t/:tenantKey', tenantContextMiddleware, makePublicApiRouter());
+  app.use('/t/:tenantKey', tenantContextMiddleware, makeCheckoutRouter());
+  app.use('/t/:tenantKey', tenantContextMiddleware, makePaymentHistoryRouter());
+
   return app;
 }
 

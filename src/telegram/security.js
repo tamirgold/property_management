@@ -22,9 +22,17 @@ const { config } = require('../config');
  * @param {number|string} userId  – msg.from.id
  * @param {number|string} chatId  – msg.chat.id
  */
-function isAuthorized(userId, chatId) {
-  if (config.telegram.allowedUserIds.has(Number(userId))) return true;
-  if (config.telegram.allowedGroupIds.has(Number(chatId))) return true;
+function buildSet(value, fallback) {
+  if (!Array.isArray(value)) return fallback;
+  return new Set(value.map(Number).filter(Number.isFinite));
+}
+
+function isAuthorized(userId, chatId, options = {}) {
+  const allowedUserIds = buildSet(options.allowedUserIds, config.telegram.allowedUserIds);
+  const allowedGroupIds = buildSet(options.allowedGroupIds, config.telegram.allowedGroupIds);
+
+  if (allowedUserIds.has(Number(userId))) return true;
+  if (allowedGroupIds.has(Number(chatId))) return true;
   return false;
 }
 
@@ -36,12 +44,22 @@ function isAuthorized(userId, chatId) {
  * Usage:
  *   bot.on('message', guard(async (msg) => { ... }));
  */
-function guard(handler) {
+function guard(handler, options = {}) {
   return async function (msg) {
     const userId = msg?.from?.id;
     const chatId = msg?.chat?.id;
+    const resolver = options.resolveAllowList;
 
-    if (!isAuthorized(userId, chatId)) {
+    let allowList = {};
+    if (typeof resolver === 'function') {
+      try {
+        allowList = (await resolver(msg)) || {};
+      } catch (err) {
+        logger.error('Failed to resolve dynamic Telegram allow list', { error: err.message });
+      }
+    }
+
+    if (!isAuthorized(userId, chatId, allowList)) {
       logger.warn('Unauthorized Telegram access attempt silently dropped', {
         userId,
         chatId,

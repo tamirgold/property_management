@@ -25,69 +25,92 @@ function getNotifyLandlord() {
   return require('../telegram/bot').notifyLandlord;
 }
 
+function sendLandlordNotification(notifyLandlord, text, tenantContext) {
+  if (process.env.PLATFORM_MULTI_TENANT === '1' && tenantContext) {
+    return notifyLandlord(text, { tenantContext });
+  }
+  return notifyLandlord(text);
+}
+
+function sendSmsWithTenant(sms, to, body, tenantContext) {
+  if (process.env.PLATFORM_MULTI_TENANT === '1' && tenantContext) {
+    return sms.send(to, body, { tenantContext });
+  }
+  return sms.send(to, body);
+}
+
 /**
  * Handle a single normalised event from ERPNext.
  * @param {{ type: string, data: object }} event
  */
 async function handle(event) {
   const { type, data } = event;
+  const tenantContext = event.tenantContext || null;
   const notifyLandlord = getNotifyLandlord();
 
   logger.info('Webhook event received', { type });
 
   switch (type) {
     case 'rent.overdue':
-      await notifyLandlord(
-        `⚠️ Rent overdue: ${data.tenantName} (${data.unitName}) — $${data.amountDue} past due`
+      await sendLandlordNotification(notifyLandlord,
+        `⚠️ Rent overdue: ${data.tenantName} (${data.unitName}) — $${data.amountDue} past due`,
+        tenantContext
       );
       break;
 
     case 'payment.received':
-      await notifyLandlord(
+      await sendLandlordNotification(notifyLandlord,
         `✅ Payment received: ${data.tenantName} paid $${data.amountPaid}` +
-        (data.paymentMethod ? ` via ${data.paymentMethod}` : '')
+        (data.paymentMethod ? ` via ${data.paymentMethod}` : ''),
+        tenantContext
       );
       break;
 
     case 'payment.pending':
-      await notifyLandlord(
-        `🕐 ACH payment pending: ${data.tenantName} initiated ${data.amount} bank transfer for ${data.invoiceName} — funds arrive in 1-5 business days`
+      await sendLandlordNotification(notifyLandlord,
+        `🕐 ACH payment pending: ${data.tenantName} initiated ${data.amount} bank transfer for ${data.invoiceName} — funds arrive in 1-5 business days`,
+        tenantContext
       );
       break;
 
     case 'payment.failed':
-      await notifyLandlord(
-        `❌ ACH payment FAILED: ${data.tenantName} — ${data.amount} bank transfer for ${data.invoiceName} was rejected. Contact tenant to arrange alternative payment.`
+      await sendLandlordNotification(notifyLandlord,
+        `❌ ACH payment FAILED: ${data.tenantName} — ${data.amount} bank transfer for ${data.invoiceName} was rejected. Contact tenant to arrange alternative payment.`,
+        tenantContext
       );
       break;
 
     case 'workorder.created':
-      await notifyLandlord(
-        `🔧 New maintenance ticket: [${data.ticketId}] ${data.subject} — ${data.tenantName}`
+      await sendLandlordNotification(notifyLandlord,
+        `🔧 New maintenance ticket: [${data.ticketId}] ${data.subject} — ${data.tenantName}`,
+        tenantContext
       );
       break;
 
     case 'lease.created':
-      await notifyLandlord(
-        `📄 New lease submitted: ${data.tenantName} — ${data.unitName}`
+      await sendLandlordNotification(notifyLandlord,
+        `📄 New lease submitted: ${data.tenantName} — ${data.unitName}`,
+        tenantContext
       );
       break;
 
     case 'lease.expired':
-      await notifyLandlord(
-        `📋 Lease cancelled: ${data.tenantName} — ${data.unitName}`
+      await sendLandlordNotification(notifyLandlord,
+        `📋 Lease cancelled: ${data.tenantName} — ${data.unitName}`,
+        tenantContext
       );
       break;
 
     case 'application.submitted':
-      await notifyLandlord(
+      await sendLandlordNotification(notifyLandlord,
         `📋 New rental application:\n` +
         `  Name: ${data.firstName} ${data.lastName}\n` +
         `  Email: ${data.email}   Phone: ${data.phone}\n` +
         `  Income: $${data.monthlyIncome}/mo   Occupants: ${data.occupants}\n` +
         `  Eviction history: ${data.hasEviction}\n` +
         `  Property interest: ${data.interestedProperty || '(not specified)'}\n` +
-        `Reply "screen ${data.leadName}" to send a SmartMove screening request.`
+        `Reply "screen ${data.leadName}" to send a SmartMove screening request.`,
+        tenantContext
       );
       break;
 
@@ -100,14 +123,15 @@ async function handle(event) {
             unit:      data.unitName  || '',
             startDate: data.startDate || '',
           });
-          await sms.send(data.tenantPhone, msg);
+          await sendSmsWithTenant(sms, data.tenantPhone, msg, tenantContext);
         } catch (err) {
           logger.error('Failed to send lease-signed SMS', { error: err.message });
         }
       }
-      await notifyLandlord(
+      await sendLandlordNotification(notifyLandlord,
         `✅ Lease signed: ${data.tenantName} — ${data.unitName}\n` +
-        '  All parties have signed. PDF saved to ERPNext Lease record.'
+        '  All parties have signed. PDF saved to ERPNext Lease record.',
+        tenantContext
       );
       break;
     }

@@ -20,7 +20,7 @@ const OpenAI = require('openai');
 const logger = require('../logger');
 const { config } = require('../config');
 const tools = require('./functions');
-const pmsClient = require('../api/index');
+const apiRoot = require('../api/index');
 
 // Honour system proxy env-vars so OpenAI requests go through the egress gateway.
 function buildOpenAIAgent() {
@@ -34,10 +34,30 @@ function buildOpenAIAgent() {
   }
 }
 
-const openai = new OpenAI({
-  apiKey: config.openai.apiKey,
-  httpAgent: buildOpenAIAgent(),
-});
+const openAiCache = new Map();
+
+function getPmsClient(tenantContext) {
+  if (tenantContext && typeof apiRoot.forTenant === 'function') {
+    return apiRoot.forTenant(tenantContext);
+  }
+  return apiRoot;
+}
+
+function getOpenAiClient(tenantContext) {
+  const openAiCfg = tenantContext?.integrations?.openai || {};
+  const apiKey = openAiCfg.apiKey || config.openai.apiKey;
+  const cacheKey = apiKey || 'default';
+
+  if (openAiCache.has(cacheKey)) return openAiCache.get(cacheKey);
+
+  const client = new OpenAI({
+    apiKey,
+    httpAgent: buildOpenAIAgent(),
+  });
+
+  openAiCache.set(cacheKey, client);
+  return client;
+}
 
 /**
  * Parse street / city / state / zip from an ERPNext property name.
@@ -84,9 +104,10 @@ You are serving the landlord/property manager only – treat all queries as comi
  * Maps an OpenAI tool call to the corresponding PMS API call.
  * Returns the raw API response (JSON-serializable).
  */
-async function executeTool(toolCall) {
+async function executeTool(toolCall, tenantContext) {
   const { name, arguments: rawArgs } = toolCall.function;
   const args = JSON.parse(rawArgs || '{}');
+  const pmsClient = getPmsClient(tenantContext);
 
   logger.info('Executing AI tool call', { tool: name, args });
 
@@ -288,12 +309,19 @@ async function executeTool(toolCall) {
  * @param {Array}   history      – Previous messages in the conversation (mutable; will be updated)
  * @returns {string}             – The assistant's reply
  */
-async function chat(userMessage, history = []) {
+async function chat(userMessage, history = [], options = {}) {
+  const tenantContext = options.tenantContext || null;
+  const openai = getOpenAiClient(tenantContext);
+
   // Append the new user turn
   history.push({ role: 'user', content: userMessage });
 
+  const tenantPreamble = tenantContext?.tenant?.name
+    ? `Current operating company: ${tenantContext.tenant.name}. Only use data and actions for this company.`
+    : '';
+
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: SYSTEM_PROMPT + (tenantPreamble ? `\n\n${tenantPreamble}` : '') },
     ...history,
   ];
 
@@ -306,7 +334,7 @@ async function chat(userMessage, history = []) {
     iterations++;
 
     const response = await openai.chat.completions.create({
-      model: config.openai.model,
+      model: tenantContext?.integrations?.openai?.model || config.openai.model,
       messages,
       tools,
       tool_choice: 'auto',
@@ -322,7 +350,7 @@ async function chat(userMessage, history = []) {
       const toolResults = await Promise.allSettled(
         assistantMsg.tool_calls.map(async (tc) => {
           try {
-            const result = await executeTool(tc);
+            const result = await executeTool(tc, tenantContext);
             return { toolCallId: tc.id, result };
           } catch (err) {
             logger.error('Tool execution error', { tool: tc.function.name, error: err.message });

@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Property SaaS Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #ecf3e9;
+      --bg-accent: #dfead9;
+      --ink: #1f2a24;
+      --ink-muted: #567164;
+      --panel: #f6fbf4;
+      --line: #cadbcc;
+      --primary: #1c7c54;
+      --primary-ink: #f4fff9;
+      --danger: #b03a2e;
+      --shadow: 0 16px 40px rgba(26, 45, 33, 0.12);
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 15%, #f9fff7 0, #f9fff700 40%),
+        radial-gradient(circle at 80% 5%, #dcefd8 0, #dcefd800 35%),
+        linear-gradient(160deg, var(--bg) 0%, var(--bg-accent) 100%);
+    }
+
+    .shell {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .hero {
+      background: linear-gradient(125deg, #234638 0%, #2f6450 60%, #2e7558 100%);
+      color: #f3fff8;
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+      margin-bottom: 18px;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: .3px;
+    }
+
+    .hero p {
+      margin: 8px 0 0;
+      color: #d2efe0;
+      font-size: 14px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    .panel h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      letter-spacing: .4px;
+      text-transform: uppercase;
+      color: #3f6555;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .grid.triple {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field label {
+      font-size: 12px;
+      color: var(--ink-muted);
+      letter-spacing: .2px;
+    }
+
+    input,
+    select,
+    textarea,
+    button {
+      font-family: inherit;
+      font-size: 14px;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--ink);
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    textarea {
+      min-height: 180px;
+      resize: vertical;
+      font-family: 'IBM Plex Mono', monospace;
+      line-height: 1.45;
+      font-size: 12px;
+      background: #fcfffb;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: #77a98f;
+      box-shadow: 0 0 0 3px rgba(28, 124, 84, 0.14);
+    }
+
+    .actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-weight: 600;
+      letter-spacing: .1px;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: var(--primary-ink);
+    }
+
+    .btn-ghost {
+      background: #ecf6ef;
+      color: #286648;
+      border: 1px solid #b9d1c1;
+    }
+
+    .btn-danger {
+      background: #fbe7e4;
+      color: var(--danger);
+      border: 1px solid #f0c2bc;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .status {
+      font-size: 13px;
+      color: var(--ink-muted);
+    }
+
+    .status strong { color: #305746; }
+
+    .hidden { display: none !important; }
+
+    .code-pill {
+      font-family: 'IBM Plex Mono', monospace;
+      display: inline-block;
+      padding: 2px 8px;
+      border: 1px solid #b4cab9;
+      border-radius: 999px;
+      background: #edf7ef;
+      color: #234a35;
+      font-size: 12px;
+      letter-spacing: .2px;
+    }
+
+    .list-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .list-table th,
+    .list-table td {
+      border-bottom: 1px solid #d7e4da;
+      text-align: left;
+      padding: 8px 6px;
+    }
+
+    .list-table th {
+      color: #4a695a;
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: .25px;
+      text-transform: uppercase;
+    }
+
+    .toast {
+      position: fixed;
+      right: 14px;
+      bottom: 14px;
+      background: #143828;
+      color: #eaf9f1;
+      border-radius: 10px;
+      padding: 10px 12px;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translateY(12px);
+      transition: all .2s ease;
+      font-size: 13px;
+      max-width: 460px;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast.error {
+      background: #5b1f19;
+      color: #ffeae7;
+    }
+
+    @media (max-width: 880px) {
+      .shell { padding: 14px; }
+      .grid,
+      .grid.triple { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 21px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <h1>Global Property SaaS Control Center</h1>
+      <p>Company-isolated administration for users, settings, integrations, and automations.</p>
+    </section>
+
+    <section id="auth-card" class="panel">
+      <h2>Sign In</h2>
+      <div id="login-step">
+        <div class="grid triple">
+          <div class="field">
+            <label>Email</label>
+            <input id="login-email" type="email" placeholder="owner@company.com" />
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input id="login-password" type="password" placeholder="Your password" />
+          </div>
+          <div class="field">
+            <label>Company Slug (or Tenant ID)</label>
+            <input id="login-tenant" type="text" placeholder="legacy-default" />
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn-primary" id="btn-login">Continue</button>
+        </div>
+      </div>
+
+      <div id="otp-step" class="hidden">
+        <p class="status">Enter your one-time code.</p>
+        <div class="grid">
+          <div class="field">
+            <label>OTP Code</label>
+            <input id="otp-code" type="text" maxlength="6" placeholder="123456" />
+          </div>
+          <div class="field">
+            <label>Challenge</label>
+            <input id="otp-challenge" type="text" disabled />
+          </div>
+        </div>
+        <p id="otp-preview" class="status hidden"></p>
+        <div class="actions">
+          <button class="btn-primary" id="btn-verify-otp">Sign In</button>
+          <button class="btn-ghost" id="btn-back-login">Back</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="app" class="hidden">
+      <section class="panel">
+        <div class="row">
+          <div class="status">
+            Signed in as <strong id="whoami-email">-</strong>
+            <span id="owner-badge" class="code-pill hidden">SaaS Admin</span>
+          </div>
+          <div class="actions" style="margin:0;">
+            <button class="btn-danger" id="btn-logout">Log Out</button>
+          </div>
+        </div>
+        <div class="grid" style="margin-top:12px;">
+          <div class="field">
+            <label>Active Company</label>
+            <select id="tenant-selector"></select>
+          </div>
+          <div class="field">
+            <label>Tenant ID</label>
+            <input id="tenant-id-view" type="text" disabled />
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-platform-owner" class="panel hidden">
+        <h2>Create Company</h2>
+        <div class="grid triple">
+          <div class="field"><label>Company Name</label><input id="new-tenant-name" type="text" placeholder="ACME Property Group" /></div>
+          <div class="field"><label>Slug</label><input id="new-tenant-slug" type="text" placeholder="acme" /></div>
+          <div class="field"><label>Owner Email</label><input id="new-tenant-owner-email" type="email" placeholder="owner@acme.com" /></div>
+          <div class="field"><label>Timezone</label><input id="new-tenant-timezone" type="text" value="America/Los_Angeles" /></div>
+          <div class="field"><label>Locale</label><input id="new-tenant-locale" type="text" value="en-US" /></div>
+          <div class="field"><label>Currency</label><input id="new-tenant-currency" type="text" value="USD" /></div>
+        </div>
+        <div class="actions">
+          <button class="btn-primary" id="btn-create-tenant">Create Company</button>
+        </div>
+      </section>
+
+      <section id="panel-tenant-readonly" class="panel hidden">
+        <h2>Tenant Access</h2>
+        <p class="status">
+          This account is a renter profile (`tenant` role). Company administration is not available here.
+          Use the ERPNext tenant portal for invoices, payments, and maintenance requests.
+        </p>
+      </section>
+
+      <section id="panel-company-settings" class="panel">
+        <h2>Company Settings</h2>
+        <div class="grid triple">
+          <div class="field"><label>Name</label><input id="tenant-name" type="text" /></div>
+          <div class="field"><label>Slug</label><input id="tenant-slug" type="text" disabled /></div>
+          <div class="field"><label>Status</label><input id="tenant-status" type="text" disabled /></div>
+          <div class="field"><label>Timezone</label><input id="tenant-timezone" type="text" /></div>
+          <div class="field"><label>Locale</label><input id="tenant-locale" type="text" /></div>
+          <div class="field"><label>Currency</label><input id="tenant-currency" type="text" /></div>
+        </div>
+        <div class="actions">
+          <button class="btn-primary" id="btn-save-settings">Save Settings</button>
+        </div>
+      </section>
+
+      <section id="panel-team-members" class="panel">
+        <h2>Team Members</h2>
+        <table class="list-table" id="users-table">
+          <thead>
+            <tr><th>Email</th><th>Role</th><th>Status</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="grid triple" style="margin-top:12px;">
+          <div class="field"><label>Invite Email</label><input id="invite-email" type="email" placeholder="manager@company.com" /></div>
+          <div class="field"><label>Role</label>
+            <select id="invite-role">
+              <option value="company_user">Company User</option>
+              <option value="company_admin">Company Admin</option>
+              <option value="tenant">Tenant (Renter)</option>
+            </select>
+          </div>
+          <div class="field" style="justify-content:flex-end;">
+            <label>&nbsp;</label>
+            <button class="btn-primary" id="btn-invite-user">Add Team Member</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-integrations" class="panel">
+        <h2>Integrations</h2>
+        <div class="grid">
+          <div class="field">
+            <label>Provider</label>
+            <select id="integration-provider">
+              <option value="erpnext">ERPNext</option>
+              <option value="openai">OpenAI</option>
+              <option value="telegram">Telegram</option>
+              <option value="twilio">Twilio</option>
+              <option value="stripe">Stripe</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Format</label>
+            <input type="text" value="JSON object" disabled />
+          </div>
+        </div>
+        <div class="field" style="margin-top:10px;">
+          <label>Integration Payload</label>
+          <textarea id="integration-json" spellcheck="false"></textarea>
+        </div>
+        <div class="actions">
+          <button class="btn-ghost" id="btn-load-integration">Reload</button>
+          <button class="btn-primary" id="btn-save-integration">Save Integration</button>
+        </div>
+      </section>
+
+      <section id="panel-automations" class="panel">
+        <h2>Automations</h2>
+        <div class="field">
+          <label>Automation Settings (JSON)</label>
+          <textarea id="automations-json" spellcheck="false"></textarea>
+        </div>
+        <div class="actions">
+          <button class="btn-ghost" id="btn-load-automations">Reload</button>
+          <button class="btn-primary" id="btn-save-automations">Save Automations</button>
+        </div>
+      </section>
+
+      <section id="panel-legacy" class="panel">
+        <h2>Legacy Automation UI</h2>
+        <p class="status">For single-tenant scheduler controls, use <a href="/admin/legacy">/admin/legacy</a>.</p>
+      </section>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const API_ROOT = '/api/v2';
+    const SESSION_KEY = 'property_saas_session_v1';
+    const ROLE_ORDER = ['tenant', 'company_user', 'company_admin', 'saas_admin'];
+
+    const state = {
+      token: '',
+      me: null,
+      role: 'tenant',
+      tenants: [],
+      activeTenantId: '',
+      challengeId: '',
+    };
+
+    function byId(id) { return document.getElementById(id); }
+
+    function toast(message, isError = false) {
+      const el = byId('toast');
+      el.textContent = message;
+      el.className = `toast show${isError ? ' error' : ''}`;
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(() => {
+        el.className = 'toast';
+      }, 3000);
+    }
+
+    async function api(path, options = {}, requireAuth = true) {
+      const headers = Object.assign({}, options.headers || {});
+      if (!headers['Content-Type'] && options.body !== undefined) {
+        headers['Content-Type'] = 'application/json';
+      }
+      if (requireAuth && state.token) {
+        headers.Authorization = `Bearer ${state.token}`;
+      }
+
+      const res = await fetch(`${API_ROOT}${path}`, {
+        method: options.method || 'GET',
+        headers,
+        body: options.body,
+      });
+
+      if (res.status === 204) return null;
+
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+
+      if (!res.ok) {
+        throw new Error(data?.error || text || `Request failed (${res.status})`);
+      }
+
+      return data;
+    }
+
+    function setAuthView(isAuthed) {
+      byId('auth-card').classList.toggle('hidden', isAuthed);
+      byId('app').classList.toggle('hidden', !isAuthed);
+    }
+
+    function setOtpStep(active) {
+      byId('login-step').classList.toggle('hidden', active);
+      byId('otp-step').classList.toggle('hidden', !active);
+    }
+
+    function saveSession() {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ token: state.token, activeTenantId: state.activeTenantId }));
+    }
+
+    function clearSession() {
+      localStorage.removeItem(SESSION_KEY);
+      state.token = '';
+      state.me = null;
+      state.role = 'tenant';
+      state.tenants = [];
+      state.activeTenantId = '';
+      state.challengeId = '';
+    }
+
+    function roleAtLeast(actual, required) {
+      const a = ROLE_ORDER.indexOf(actual || 'tenant');
+      const b = ROLE_ORDER.indexOf(required || 'tenant');
+      return a >= b;
+    }
+
+    function getPermissions() {
+      return {
+        canCreateCompany: !!state.me?.user?.isPlatformOwner,
+        canViewCompanySettings: roleAtLeast(state.role, 'company_user'),
+        canManageCompanySettings: roleAtLeast(state.role, 'company_admin'),
+        canViewUsers: roleAtLeast(state.role, 'company_admin'),
+        canManageUsers: roleAtLeast(state.role, 'company_admin'),
+        canViewIntegrations: roleAtLeast(state.role, 'company_admin'),
+        canManageIntegrations: roleAtLeast(state.role, 'company_admin'),
+        canViewAutomations: roleAtLeast(state.role, 'company_user'),
+        canManageAutomations: roleAtLeast(state.role, 'company_admin'),
+      };
+    }
+
+    function applyRolePermissions() {
+      const perms = getPermissions();
+      byId('panel-platform-owner').classList.toggle('hidden', !perms.canCreateCompany);
+      byId('panel-tenant-readonly').classList.toggle('hidden', state.role !== 'tenant');
+
+      byId('panel-company-settings').classList.toggle('hidden', !perms.canViewCompanySettings);
+      byId('panel-team-members').classList.toggle('hidden', !perms.canViewUsers);
+      byId('panel-integrations').classList.toggle('hidden', !perms.canViewIntegrations);
+      byId('panel-automations').classList.toggle('hidden', !perms.canViewAutomations);
+      byId('panel-legacy').classList.toggle('hidden', !perms.canViewCompanySettings);
+
+      const companyFields = ['tenant-name', 'tenant-timezone', 'tenant-locale', 'tenant-currency'];
+      for (const id of companyFields) byId(id).disabled = !perms.canManageCompanySettings;
+      byId('btn-save-settings').disabled = !perms.canManageCompanySettings;
+
+      byId('invite-email').disabled = !perms.canManageUsers;
+      byId('invite-role').disabled = !perms.canManageUsers;
+      byId('btn-invite-user').disabled = !perms.canManageUsers;
+
+      byId('integration-provider').disabled = !perms.canViewIntegrations;
+      byId('integration-json').disabled = !perms.canManageIntegrations;
+      byId('btn-load-integration').disabled = !perms.canViewIntegrations;
+      byId('btn-save-integration').disabled = !perms.canManageIntegrations;
+
+      byId('automations-json').disabled = !perms.canManageAutomations;
+      byId('btn-load-automations').disabled = !perms.canViewAutomations;
+      byId('btn-save-automations').disabled = !perms.canManageAutomations;
+    }
+
+    function renderTenants() {
+      const select = byId('tenant-selector');
+      select.innerHTML = '';
+
+      for (const t of state.tenants) {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = `${t.name} (${t.slug})`;
+        select.appendChild(opt);
+      }
+
+      if (!state.activeTenantId && state.tenants.length) {
+        state.activeTenantId = state.tenants[0].id;
+      }
+
+      if (state.activeTenantId) {
+        select.value = state.activeTenantId;
+      }
+    }
+
+    function getActiveTenant() {
+      return state.tenants.find(t => t.id === state.activeTenantId) || null;
+    }
+
+    function fillTenantFields(tenant) {
+      byId('tenant-id-view').value = tenant?.id || '';
+      byId('tenant-name').value = tenant?.name || '';
+      byId('tenant-slug').value = tenant?.slug || '';
+      byId('tenant-status').value = tenant?.status || '';
+      byId('tenant-timezone').value = tenant?.timezone || 'UTC';
+      byId('tenant-locale').value = tenant?.locale || 'en-US';
+      byId('tenant-currency').value = tenant?.currency || 'USD';
+    }
+
+    async function loadUsers() {
+      if (!getPermissions().canViewUsers) {
+        byId('users-table').querySelector('tbody').innerHTML = '';
+        return;
+      }
+      if (!state.activeTenantId) return;
+      const users = await api(`/tenants/${state.activeTenantId}/users`);
+      const tbody = byId('users-table').querySelector('tbody');
+      tbody.innerHTML = '';
+
+      for (const user of users) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${user.email}</td><td>${user.role}</td><td>${user.status}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function loadSettings() {
+      const tenant = getActiveTenant();
+      if (!tenant) return;
+
+      const settings = await api(`/tenants/${tenant.id}/settings`);
+      fillTenantFields({
+        ...tenant,
+        timezone: settings.timezone || tenant.timezone,
+        locale: settings.locale || tenant.locale,
+        currency: settings.currency || tenant.currency,
+      });
+    }
+
+    async function loadIntegration() {
+      if (!getPermissions().canViewIntegrations) {
+        byId('integration-json').value = '{}';
+        return;
+      }
+      const tenantId = state.activeTenantId;
+      const provider = byId('integration-provider').value;
+      if (!tenantId || !provider) return;
+
+      const cfg = await api(`/tenants/${tenantId}/integrations/${provider}`);
+      byId('integration-json').value = JSON.stringify(cfg || {}, null, 2);
+    }
+
+    async function loadAutomations() {
+      if (!getPermissions().canViewAutomations) {
+        byId('automations-json').value = '{}';
+        return;
+      }
+      const tenantId = state.activeTenantId;
+      if (!tenantId) return;
+      const cfg = await api(`/tenants/${tenantId}/automations`);
+      byId('automations-json').value = JSON.stringify(cfg || {}, null, 2);
+    }
+
+    async function loadTenantWorkspace() {
+      const perms = getPermissions();
+      const tasks = [];
+      if (perms.canViewCompanySettings) tasks.push(loadSettings());
+      if (perms.canViewUsers) tasks.push(loadUsers());
+      if (perms.canViewIntegrations) tasks.push(loadIntegration());
+      if (perms.canViewAutomations) tasks.push(loadAutomations());
+      if (!tasks.length) return;
+      await Promise.all(tasks);
+    }
+
+    async function hydrateSession() {
+      state.me = await api('/me');
+      state.role = state.me.role || 'tenant';
+      byId('whoami-email').textContent = state.me.user.email;
+      byId('owner-badge').classList.toggle('hidden', !state.me.user.isPlatformOwner);
+      applyRolePermissions();
+
+      state.tenants = await api('/tenants');
+      if (!state.tenants.length) {
+        throw new Error('No tenant memberships found for this account');
+      }
+
+      if (!state.tenants.some(t => t.id === state.activeTenantId)) {
+        state.activeTenantId = state.tenants[0].id;
+      }
+
+      renderTenants();
+      fillTenantFields(getActiveTenant());
+      await loadTenantWorkspace();
+      setAuthView(true);
+      saveSession();
+    }
+
+    async function onLogin() {
+      const email = byId('login-email').value.trim();
+      const password = byId('login-password').value;
+      const tenantRef = byId('login-tenant').value.trim();
+
+      if (!email || !password || !tenantRef) {
+        toast('Email, password, and company slug are required.', true);
+        return;
+      }
+
+      const payload = tenantRef.includes('-') && tenantRef.length > 20
+        ? { email, password, tenantId: tenantRef }
+        : { email, password, tenantSlug: tenantRef.toLowerCase() };
+
+      const res = await api('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }, false);
+
+      state.challengeId = res.challengeId;
+      byId('otp-challenge').value = res.challengeId;
+      byId('otp-code').value = '';
+
+      const preview = byId('otp-preview');
+      if (res.otpPreview) {
+        preview.textContent = `Development OTP preview: ${res.otpPreview}`;
+        preview.classList.remove('hidden');
+      } else {
+        preview.classList.add('hidden');
+      }
+
+      setOtpStep(true);
+      toast('OTP issued. Enter the code to continue.');
+    }
+
+    async function onVerifyOtp() {
+      const code = byId('otp-code').value.trim();
+      if (!state.challengeId || !code) {
+        toast('OTP code is required.', true);
+        return;
+      }
+
+      const session = await api('/auth/verify-otp', {
+        method: 'POST',
+        body: JSON.stringify({ challengeId: state.challengeId, code }),
+      }, false);
+
+      state.token = session.token;
+      state.activeTenantId = session.tenant.id;
+      await hydrateSession();
+      toast('Signed in.');
+    }
+
+    async function onSaveSettings() {
+      if (!getPermissions().canManageCompanySettings) {
+        toast('Only company admins can edit company settings.', true);
+        return;
+      }
+      const tenant = getActiveTenant();
+      if (!tenant) return;
+
+      const settings = {
+        name: byId('tenant-name').value.trim(),
+        timezone: byId('tenant-timezone').value.trim(),
+        locale: byId('tenant-locale').value.trim(),
+        currency: byId('tenant-currency').value.trim().toUpperCase(),
+      };
+
+      await api(`/tenants/${tenant.id}/settings`, {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      });
+
+      tenant.name = settings.name || tenant.name;
+      tenant.timezone = settings.timezone;
+      tenant.locale = settings.locale;
+      tenant.currency = settings.currency;
+      renderTenants();
+      toast('Settings saved.');
+    }
+
+    async function onInviteUser() {
+      if (!getPermissions().canManageUsers) {
+        toast('Only company admins can add team members.', true);
+        return;
+      }
+      const tenant = getActiveTenant();
+      if (!tenant) return;
+
+      const email = byId('invite-email').value.trim();
+      const role = byId('invite-role').value;
+      if (!email) {
+        toast('Invite email is required.', true);
+        return;
+      }
+
+      await api(`/tenants/${tenant.id}/users`, {
+        method: 'POST',
+        body: JSON.stringify({ email, role }),
+      });
+
+      byId('invite-email').value = '';
+      await loadUsers();
+      toast('Team member added.');
+    }
+
+    async function onSaveIntegration() {
+      if (!getPermissions().canManageIntegrations) {
+        toast('Only company admins can edit integrations.', true);
+        return;
+      }
+      const tenant = getActiveTenant();
+      if (!tenant) return;
+
+      const provider = byId('integration-provider').value;
+      let payload;
+      try {
+        payload = JSON.parse(byId('integration-json').value || '{}');
+      } catch (_err) {
+        toast('Integration JSON is invalid.', true);
+        return;
+      }
+
+      await api(`/tenants/${tenant.id}/integrations/${provider}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+
+      toast(`${provider} integration saved.`);
+    }
+
+    async function onSaveAutomations() {
+      if (!getPermissions().canManageAutomations) {
+        toast('Only company admins can edit automations.', true);
+        return;
+      }
+      const tenant = getActiveTenant();
+      if (!tenant) return;
+
+      let payload;
+      try {
+        payload = JSON.parse(byId('automations-json').value || '{}');
+      } catch (_err) {
+        toast('Automation JSON is invalid.', true);
+        return;
+      }
+
+      await api(`/tenants/${tenant.id}/automations`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+
+      toast('Automations saved.');
+    }
+
+    async function onCreateTenant() {
+      if (!getPermissions().canCreateCompany) {
+        toast('Only SaaS admins can create companies.', true);
+        return;
+      }
+
+      const payload = {
+        name: byId('new-tenant-name').value.trim(),
+        slug: byId('new-tenant-slug').value.trim().toLowerCase(),
+        ownerEmail: byId('new-tenant-owner-email').value.trim().toLowerCase(),
+        timezone: byId('new-tenant-timezone').value.trim() || 'UTC',
+        locale: byId('new-tenant-locale').value.trim() || 'en-US',
+        currency: byId('new-tenant-currency').value.trim().toUpperCase() || 'USD',
+      };
+
+      if (!payload.name || !payload.slug) {
+        toast('Company name and slug are required.', true);
+        return;
+      }
+
+      const created = await api('/tenants', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      state.tenants = await api('/tenants');
+      state.activeTenantId = created?.id || state.activeTenantId;
+      renderTenants();
+      fillTenantFields(getActiveTenant());
+      await loadTenantWorkspace();
+      toast('Company created.');
+    }
+
+    async function onLogout() {
+      try {
+        await api('/auth/logout', { method: 'POST' });
+      } catch (_) {
+        // best-effort
+      }
+      clearSession();
+      setAuthView(false);
+      setOtpStep(false);
+      toast('Signed out.');
+    }
+
+    function bindEvents() {
+      byId('btn-login').addEventListener('click', () => withError(onLogin));
+      byId('btn-verify-otp').addEventListener('click', () => withError(onVerifyOtp));
+      byId('btn-back-login').addEventListener('click', () => setOtpStep(false));
+
+      byId('btn-logout').addEventListener('click', () => withError(onLogout));
+      byId('tenant-selector').addEventListener('change', async (e) => {
+        state.activeTenantId = e.target.value;
+        fillTenantFields(getActiveTenant());
+        saveSession();
+        await withError(loadTenantWorkspace);
+      });
+
+      byId('btn-save-settings').addEventListener('click', () => withError(onSaveSettings));
+      byId('btn-invite-user').addEventListener('click', () => withError(onInviteUser));
+
+      byId('integration-provider').addEventListener('change', () => withError(loadIntegration));
+      byId('btn-load-integration').addEventListener('click', () => withError(loadIntegration));
+      byId('btn-save-integration').addEventListener('click', () => withError(onSaveIntegration));
+
+      byId('btn-load-automations').addEventListener('click', () => withError(loadAutomations));
+      byId('btn-save-automations').addEventListener('click', () => withError(onSaveAutomations));
+
+      byId('btn-create-tenant').addEventListener('click', () => withError(onCreateTenant));
+    }
+
+    async function withError(fn) {
+      try {
+        await fn();
+      } catch (err) {
+        toast(err.message || 'Unexpected error.', true);
+      }
+    }
+
+    async function init() {
+      bindEvents();
+      setAuthView(false);
+      setOtpStep(false);
+
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (!raw) return;
+
+      try {
+        const parsed = JSON.parse(raw);
+        state.token = parsed.token || '';
+        state.activeTenantId = parsed.activeTenantId || '';
+      } catch (_) {
+        clearSession();
+      }
+
+      if (!state.token) return;
+
+      await withError(hydrateSession);
+    }
+
+    init();
+  </script>
+</body>
+</html>
