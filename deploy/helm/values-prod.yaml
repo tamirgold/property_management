@@ -1,10 +1,10 @@
 config:
-  WEBHOOK_BASE_URL: https://app.example.com
+  WEBHOOK_BASE_URL: https://pm.betterdeal.ai
   ERPNEXT_BASE_URL: https://erpnext.example.com
 
 ingress:
   hosts:
-    - host: property.example.com
+    - host: pm.betterdeal.ai
       paths:
         - path: /
           pathType: Prefix
