@@ -11,6 +11,7 @@ permissions:
 env:
   CHART_PATH: deploy/helm
   RELEASE_NAME: property-management
+  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID || '7f67e165-f24d-4618-9161-5a6dedc4ddba' }}
   ACR_NAME: ${{ vars.ACR_NAME || 'pmbetterdealacr' }}
   ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER || 'pmbetterdealacr.azurecr.io' }}
   AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP || 'pm-betterdeal-rg' }}
@@ -48,7 +49,7 @@ jobs:
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Azure login (creds fallback)
@@ -95,7 +96,7 @@ jobs:
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Azure login (creds fallback)
@@ -137,7 +138,7 @@ jobs:
             --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
             --set serviceAccount.name="${{ env.K8S_SERVICE_ACCOUNT_NAME }}" \
             --set workloadIdentity.clientId="${{ env.WORKLOAD_IDENTITY_CLIENT_ID }}" \
-            --set workloadIdentity.tenantId="${{ secrets.AZURE_TENANT_ID }}" \
+            --set workloadIdentity.tenantId="${{ env.AZURE_TENANT_ID }}" \
             --set keyVault.name="${{ env.KEY_VAULT_NAME }}"
 
       - name: Wait for web rollout
