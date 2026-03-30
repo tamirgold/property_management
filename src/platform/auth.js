@@ -120,6 +120,27 @@ async function bootstrapPlatformOwner() {
   }
 }
 
+function formatSessionResponse({ session, user, tenant, membership }) {
+  return {
+    token: session.token,
+    expiresAt: session.expiresAt,
+    user: {
+      id: user.id,
+      email: user.email,
+      isPlatformOwner: !!user.isPlatformOwner,
+      role: user.isPlatformOwner ? 'saas_admin' : normalizeMembershipRole(membership.role),
+    },
+    tenant: {
+      id: tenant.id,
+      slug: tenant.slug,
+      name: tenant.name,
+      timezone: tenant.timezone,
+      locale: tenant.locale,
+      currency: tenant.currency,
+    },
+  };
+}
+
 async function beginLogin({ email, password, tenantId, tenantSlug }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedTenantSlug = String(tenantSlug || '').trim().toLowerCase();
@@ -144,34 +165,24 @@ async function beginLogin({ email, password, tenantId, tenantSlug }) {
     resolvedTenantId = tenant?.id || '';
   }
 
-  const membership = await store.getMembership(user.id, resolvedTenantId);
+  const [tenant, membership] = await Promise.all([
+    store.getTenantById(resolvedTenantId),
+    store.getMembership(user.id, resolvedTenantId),
+  ]);
   if (!membership || membership.status !== 'active') {
     throw new Error('User is not a member of this company');
   }
+  if (!tenant || tenant.status !== 'active') {
+    throw new Error('Tenant is inactive');
+  }
 
-  const code = randomOtp();
-  const challenge = await store.createOtpChallenge({
+  const session = await store.createSession({
     userId: user.id,
     tenantId: resolvedTenantId,
-    code,
-    ttlSeconds: 600,
+    ttlSeconds: 7 * 24 * 3600,
   });
 
-  // In production this should be delivered by email/SMS provider.
-  logger.info('OTP challenge generated', {
-    email: normalizedEmail,
-    tenantId: resolvedTenantId,
-    challengeId: challenge.id,
-    otp: code,
-  });
-
-  return {
-    challengeId: challenge.id,
-    expiresAt: challenge.expiresAt,
-    // Temporary fallback until OTP delivery is wired to SMS/email.
-    delivery: 'preview',
-    otpPreview: code,
-  };
+  return formatSessionResponse({ session, user, tenant, membership });
 }
 
 async function verifyOtpAndCreateSession({ challengeId, code }) {
@@ -198,24 +209,7 @@ async function verifyOtpAndCreateSession({ challengeId, code }) {
     ttlSeconds: 7 * 24 * 3600,
   });
 
-  return {
-    token: session.token,
-    expiresAt: session.expiresAt,
-    user: {
-      id: user.id,
-      email: user.email,
-      isPlatformOwner: !!user.isPlatformOwner,
-      role: user.isPlatformOwner ? 'saas_admin' : normalizeMembershipRole(membership.role),
-    },
-    tenant: {
-      id: tenant.id,
-      slug: tenant.slug,
-      name: tenant.name,
-      timezone: tenant.timezone,
-      locale: tenant.locale,
-      currency: tenant.currency,
-    },
-  };
+  return formatSessionResponse({ session, user, tenant, membership });
 }
 
 async function getAuthContextFromToken(bearerToken) {
