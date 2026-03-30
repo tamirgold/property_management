@@ -140,5 +140,18 @@ jobs:
             --set workloadIdentity.tenantId="${{ secrets.AZURE_TENANT_ID }}" \
             --set keyVault.name="${{ env.KEY_VAULT_NAME }}"
 
-      - name: Smoke test
-        run: curl -fsS "${{ env.APP_BASE_URL }}/webhooks/health"
+      - name: Wait for web rollout
+        run: kubectl rollout status deployment/property-management-property-management-web -n "${{ env.K8S_NAMESPACE }}" --timeout=10m
+
+      - name: Reset stale ACME resources
+        run: |
+          OBJECTS="$(kubectl get certificaterequest,order,challenge -n "${{ env.K8S_NAMESPACE }}" -o name | grep -E '^(certificaterequest\.cert-manager\.io|order\.acme\.cert-manager\.io|challenge\.acme\.cert-manager\.io)/property-management-tls-' || true)"
+          if [[ -n "${OBJECTS}" ]]; then
+            echo "${OBJECTS}" | xargs kubectl delete -n "${{ env.K8S_NAMESPACE }}"
+          fi
+
+      - name: Wait for Let's Encrypt certificate
+        run: kubectl wait --for=condition=Ready certificate/property-management-tls -n "${{ env.K8S_NAMESPACE }}" --timeout=15m
+
+      - name: Public smoke test
+        run: curl --retry 12 --retry-delay 10 --retry-connrefused -fsS "${{ env.APP_BASE_URL }}/webhooks/health"
