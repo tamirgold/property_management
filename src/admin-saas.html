@@ -449,7 +449,6 @@
       role: 'tenant',
       tenants: [],
       activeTenantId: '',
-      challengeId: '',
     };
 
     function byId(id) { return document.getElementById(id); }
@@ -496,11 +495,6 @@
       byId('app').classList.toggle('hidden', !isAuthed);
     }
 
-    function setOtpStep(active) {
-      byId('login-step').classList.toggle('hidden', active);
-      byId('otp-step').classList.toggle('hidden', !active);
-    }
-
     function saveSession() {
       localStorage.setItem(SESSION_KEY, JSON.stringify({ token: state.token, activeTenantId: state.activeTenantId }));
     }
@@ -512,7 +506,6 @@
       state.role = 'tenant';
       state.tenants = [];
       state.activeTenantId = '';
-      state.challengeId = '';
     }
 
     function roleAtLeast(actual, required) {
@@ -705,36 +698,8 @@
         body: JSON.stringify(payload),
       }, false);
 
-      state.challengeId = res.challengeId;
-      byId('otp-challenge').value = res.challengeId;
-      byId('otp-code').value = '';
-
-      const preview = byId('otp-preview');
-      if (res.otpPreview) {
-        preview.textContent = `One-time code: ${res.otpPreview}`;
-        preview.classList.remove('hidden');
-      } else {
-        preview.classList.add('hidden');
-      }
-
-      setOtpStep(true);
-      toast('OTP issued. Enter the code to continue.');
-    }
-
-    async function onVerifyOtp() {
-      const code = byId('otp-code').value.trim();
-      if (!state.challengeId || !code) {
-        toast('OTP code is required.', true);
-        return;
-      }
-
-      const session = await api('/auth/verify-otp', {
-        method: 'POST',
-        body: JSON.stringify({ challengeId: state.challengeId, code }),
-      }, false);
-
-      state.token = session.token;
-      state.activeTenantId = session.tenant.id;
+      state.token = res.token;
+      state.activeTenantId = res.tenant.id;
       await hydrateSession();
       toast('Signed in.');
     }
@@ -882,14 +847,11 @@
       }
       clearSession();
       setAuthView(false);
-      setOtpStep(false);
       toast('Signed out.');
     }
 
     function bindEvents() {
       byId('btn-login').addEventListener('click', () => withError(onLogin));
-      byId('btn-verify-otp').addEventListener('click', () => withError(onVerifyOtp));
-      byId('btn-back-login').addEventListener('click', () => setOtpStep(false));
 
       byId('btn-logout').addEventListener('click', () => withError(onLogout));
       byId('tenant-selector').addEventListener('change', async (e) => {
@@ -923,7 +885,6 @@
     async function init() {
       bindEvents();
       setAuthView(false);
-      setOtpStep(false);
 
       const raw = localStorage.getItem(SESSION_KEY);
       if (!raw) return;
