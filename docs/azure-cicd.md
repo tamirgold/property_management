@@ -31,8 +31,8 @@ terraform apply
 ### Environment variables (`dev`, `stage`, `prod`)
 - `AKS_RESOURCE_GROUP`
 - `AKS_CLUSTER_NAME`
-- `ACR_NAME`
 - `ACR_LOGIN_SERVER`
+- `ACR_NAME` (optional if `ACR_LOGIN_SERVER` is set; the workflow can derive it)
 - `KEY_VAULT_NAME`
 - `WORKLOAD_IDENTITY_CLIENT_ID`
 - `K8S_NAMESPACE`

@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
+      acr_name: ${{ steps.acr.outputs.name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -48,8 +49,26 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Resolve ACR name
+        id: acr
+        env:
+          ACR_NAME: ${{ vars.ACR_NAME }}
+          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+        run: |
+          REGISTRY_NAME="${ACR_NAME}"
+          if [[ -z "${REGISTRY_NAME}" && -n "${ACR_LOGIN_SERVER}" ]]; then
+            REGISTRY_NAME="${ACR_LOGIN_SERVER%%.*}"
+          fi
+
+          if [[ -z "${REGISTRY_NAME}" ]]; then
+            echo "Missing ACR configuration. Set ACR_NAME or ACR_LOGIN_SERVER in GitHub Actions variables." >&2
+            exit 1
+          fi
+
+          echo "name=${REGISTRY_NAME}" >> "$GITHUB_OUTPUT"
+
       - name: ACR login
-        run: az acr login --name "${{ vars.ACR_NAME }}"
+        run: az acr login --name "${{ steps.acr.outputs.name }}"
 
       - name: Build and push image
         id: meta
