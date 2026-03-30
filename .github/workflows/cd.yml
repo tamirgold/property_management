@@ -11,6 +11,15 @@ permissions:
 env:
   CHART_PATH: deploy/helm
   RELEASE_NAME: property-management
+  ACR_NAME: ${{ vars.ACR_NAME || 'pmbetterdealacr' }}
+  ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER || 'pmbetterdealacr.azurecr.io' }}
+  AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP || 'pm-betterdeal-rg' }}
+  AKS_CLUSTER_NAME: ${{ vars.AKS_CLUSTER_NAME || 'pm-betterdeal-aks' }}
+  KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME || 'pmbetterdeal-kv' }}
+  WORKLOAD_IDENTITY_CLIENT_ID: ${{ vars.WORKLOAD_IDENTITY_CLIENT_ID || '5a849235-8999-45d3-b969-2878707b17aa' }}
+  K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'production' }}
+  K8S_SERVICE_ACCOUNT_NAME: ${{ vars.K8S_SERVICE_ACCOUNT_NAME || 'property-management-sa' }}
+  APP_BASE_URL: ${{ vars.APP_BASE_URL || 'https://pm.betterdeal.ai' }}
 
 jobs:
   build-and-push:
@@ -18,7 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
-      acr_name: ${{ steps.acr.outputs.name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -49,187 +57,21 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Resolve ACR name
-        id: acr
-        env:
-          ACR_NAME: ${{ vars.ACR_NAME }}
-          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
-        run: |
-          REGISTRY_NAME="${ACR_NAME}"
-          if [[ -z "${REGISTRY_NAME}" && -n "${ACR_LOGIN_SERVER}" ]]; then
-            REGISTRY_NAME="${ACR_LOGIN_SERVER%%.*}"
-          fi
-
-          if [[ -z "${REGISTRY_NAME}" ]]; then
-            echo "Missing ACR configuration. Set ACR_NAME or ACR_LOGIN_SERVER in GitHub Actions variables." >&2
-            exit 1
-          fi
-
-          echo "name=${REGISTRY_NAME}" >> "$GITHUB_OUTPUT"
-
       - name: ACR login
-        run: az acr login --name "${{ steps.acr.outputs.name }}"
+        run: az acr login --name "${{ env.ACR_NAME }}"
 
       - name: Build and push image
         id: meta
         run: |
           IMAGE_TAG=${GITHUB_SHA}
-          IMAGE="${{ vars.ACR_LOGIN_SERVER }}/property-management:${IMAGE_TAG}"
+          IMAGE="${{ env.ACR_LOGIN_SERVER }}/property-management:${IMAGE_TAG}"
           docker build -t "${IMAGE}" .
           docker push "${IMAGE}"
           echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
-  deploy-dev:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch }}
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    environment: dev
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Resolve Azure auth mode
-        id: azure-auth
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        run: |
-          if [[ -n "${AZURE_CLIENT_ID}" && -n "${AZURE_TENANT_ID}" && -n "${AZURE_SUBSCRIPTION_ID}" ]]; then
-            echo "mode=oidc" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=creds" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Azure login
-        if: ${{ steps.azure-auth.outputs.mode == 'oidc' }}
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Azure login (creds fallback)
-        if: ${{ steps.azure-auth.outputs.mode == 'creds' }}
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - uses: azure/setup-kubectl@v4
-      - uses: azure/setup-helm@v4
-
-      - name: Get AKS credentials
-        run: az aks get-credentials --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" --name "${{ vars.AKS_CLUSTER_NAME }}" --overwrite-existing
-
-      - name: Create namespace
-        run: kubectl create namespace "${{ vars.K8S_NAMESPACE }}" --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Run DB migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          if compgen -G "db/migrations/*.sql" > /dev/null; then
-            docker run --rm \
-              -e DATABASE_URL="${DATABASE_URL}" \
-              -v "${PWD}/db/migrations:/migrations:ro" \
-              postgres:16 \
-              sh -c 'for f in $(ls /migrations/*.sql | sort); do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done'
-          else
-            echo "No db/migrations/*.sql files found, skipping."
-          fi
-
-      - name: Helm deploy
-        run: |
-          helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
-            --namespace "${{ vars.K8S_NAMESPACE }}" \
-            -f "${CHART_PATH}/values.yaml" \
-            -f "${CHART_PATH}/values-dev.yaml" \
-            --set image.repository="${{ vars.ACR_LOGIN_SERVER }}/property-management" \
-            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
-            --set serviceAccount.name="${{ vars.K8S_SERVICE_ACCOUNT_NAME }}" \
-            --set workloadIdentity.clientId="${{ vars.WORKLOAD_IDENTITY_CLIENT_ID }}" \
-            --set workloadIdentity.tenantId="${{ secrets.AZURE_TENANT_ID }}" \
-            --set keyVault.name="${{ vars.KEY_VAULT_NAME }}"
-
-      - name: Smoke test
-        run: curl -fsS "${{ vars.APP_BASE_URL }}/webhooks/health"
-
-  deploy-stage:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch }}
-    needs: [build-and-push, deploy-dev]
-    runs-on: ubuntu-latest
-    environment: stage
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Resolve Azure auth mode
-        id: azure-auth
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        run: |
-          if [[ -n "${AZURE_CLIENT_ID}" && -n "${AZURE_TENANT_ID}" && -n "${AZURE_SUBSCRIPTION_ID}" ]]; then
-            echo "mode=oidc" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=creds" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Azure login
-        if: ${{ steps.azure-auth.outputs.mode == 'oidc' }}
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Azure login (creds fallback)
-        if: ${{ steps.azure-auth.outputs.mode == 'creds' }}
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - uses: azure/setup-kubectl@v4
-      - uses: azure/setup-helm@v4
-
-      - name: Get AKS credentials
-        run: az aks get-credentials --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" --name "${{ vars.AKS_CLUSTER_NAME }}" --overwrite-existing
-
-      - name: Create namespace
-        run: kubectl create namespace "${{ vars.K8S_NAMESPACE }}" --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Run DB migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          if compgen -G "db/migrations/*.sql" > /dev/null; then
-            docker run --rm \
-              -e DATABASE_URL="${DATABASE_URL}" \
-              -v "${PWD}/db/migrations:/migrations:ro" \
-              postgres:16 \
-              sh -c 'for f in $(ls /migrations/*.sql | sort); do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done'
-          else
-            echo "No db/migrations/*.sql files found, skipping."
-          fi
-
-      - name: Helm deploy
-        run: |
-          helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
-            --namespace "${{ vars.K8S_NAMESPACE }}" \
-            -f "${CHART_PATH}/values.yaml" \
-            -f "${CHART_PATH}/values-stage.yaml" \
-            --set image.repository="${{ vars.ACR_LOGIN_SERVER }}/property-management" \
-            --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
-            --set serviceAccount.name="${{ vars.K8S_SERVICE_ACCOUNT_NAME }}" \
-            --set workloadIdentity.clientId="${{ vars.WORKLOAD_IDENTITY_CLIENT_ID }}" \
-            --set workloadIdentity.tenantId="${{ secrets.AZURE_TENANT_ID }}" \
-            --set keyVault.name="${{ vars.KEY_VAULT_NAME }}"
-
-      - name: Smoke test
-        run: curl -fsS "${{ vars.APP_BASE_URL }}/webhooks/health"
-
   deploy-prod:
     if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch }}
-    needs: [build-and-push, deploy-stage]
+    needs: build-and-push
     runs-on: ubuntu-latest
     environment: prod
     steps:
@@ -266,10 +108,10 @@ jobs:
       - uses: azure/setup-helm@v4
 
       - name: Get AKS credentials
-        run: az aks get-credentials --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" --name "${{ vars.AKS_CLUSTER_NAME }}" --overwrite-existing
+        run: az aks get-credentials --resource-group "${{ env.AKS_RESOURCE_GROUP }}" --name "${{ env.AKS_CLUSTER_NAME }}" --overwrite-existing
 
       - name: Create namespace
-        run: kubectl create namespace "${{ vars.K8S_NAMESPACE }}" --dry-run=client -o yaml | kubectl apply -f -
+        run: kubectl create namespace "${{ env.K8S_NAMESPACE }}" --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Run DB migrations
         env:
@@ -288,15 +130,15 @@ jobs:
       - name: Helm deploy
         run: |
           helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
-            --namespace "${{ vars.K8S_NAMESPACE }}" \
+            --namespace "${{ env.K8S_NAMESPACE }}" \
             -f "${CHART_PATH}/values.yaml" \
             -f "${CHART_PATH}/values-prod.yaml" \
-            --set image.repository="${{ vars.ACR_LOGIN_SERVER }}/property-management" \
+            --set image.repository="${{ env.ACR_LOGIN_SERVER }}/property-management" \
             --set image.tag="${{ needs.build-and-push.outputs.image_tag }}" \
-            --set serviceAccount.name="${{ vars.K8S_SERVICE_ACCOUNT_NAME }}" \
-            --set workloadIdentity.clientId="${{ vars.WORKLOAD_IDENTITY_CLIENT_ID }}" \
+            --set serviceAccount.name="${{ env.K8S_SERVICE_ACCOUNT_NAME }}" \
+            --set workloadIdentity.clientId="${{ env.WORKLOAD_IDENTITY_CLIENT_ID }}" \
             --set workloadIdentity.tenantId="${{ secrets.AZURE_TENANT_ID }}" \
-            --set keyVault.name="${{ vars.KEY_VAULT_NAME }}"
+            --set keyVault.name="${{ env.KEY_VAULT_NAME }}"
 
       - name: Smoke test
-        run: curl -fsS "${{ vars.APP_BASE_URL }}/webhooks/health"
+        run: curl -fsS "${{ env.APP_BASE_URL }}/webhooks/health"

@@ -28,16 +28,16 @@ terraform apply
 - `AZURE_SUBSCRIPTION_ID`
 - `GRAFANA_ADMIN_PASSWORD` (prod, for observability workflow)
 
-### Environment variables (`dev`, `stage`, `prod`)
-- `AKS_RESOURCE_GROUP`
-- `AKS_CLUSTER_NAME`
-- `ACR_LOGIN_SERVER`
-- `ACR_NAME` (optional if `ACR_LOGIN_SERVER` is set; the workflow can derive it)
-- `KEY_VAULT_NAME`
-- `WORKLOAD_IDENTITY_CLIENT_ID`
-- `K8S_NAMESPACE`
-- `K8S_SERVICE_ACCOUNT_NAME`
-- `APP_BASE_URL`
+### Environment variables (`prod`)
+- `AKS_RESOURCE_GROUP` (optional; defaults to `pm-betterdeal-rg`)
+- `AKS_CLUSTER_NAME` (optional; defaults to `pm-betterdeal-aks`)
+- `ACR_LOGIN_SERVER` (optional; defaults to `pmbetterdealacr.azurecr.io`)
+- `ACR_NAME` (optional; defaults to `pmbetterdealacr`)
+- `KEY_VAULT_NAME` (optional; defaults to `pmbetterdeal-kv`)
+- `WORKLOAD_IDENTITY_CLIENT_ID` (optional; defaults to the provisioned workload identity client ID)
+- `K8S_NAMESPACE` (optional; defaults to `production`)
+- `K8S_SERVICE_ACCOUNT_NAME` (optional; defaults to `property-management-sa`)
+- `APP_BASE_URL` (optional; defaults to `https://pm.betterdeal.ai`)
 - `CERT_MANAGER_EMAIL` (for `cluster-bootstrap.yml`)
 
 ## 3. Add Key Vault secrets
@@ -47,10 +47,9 @@ Create all runtime secrets listed in `deploy/helm/values.yaml` under `keyVault.o
 ## 4. Deployment flow
 
 - PRs: `ci.yml` + `infra.yml` plan
-- Merge to `main`:
-  - `ci.yml`
-  - `infra.yml` apply
-  - `cd.yml` deploy `dev -> stage -> prod` with environment approvals
+- Pushes: `ci.yml`
+- Push to the repository default branch or manual dispatch:
+  - `cd.yml` build and deploy to the dedicated production AKS cluster
 
 Run `cluster-bootstrap.yml` once per cluster to install `ingress-nginx` and `cert-manager`.
 Run `observability.yml` to deploy `kube-prometheus-stack` (Prometheus + Grafana).
