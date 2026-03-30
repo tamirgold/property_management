@@ -13,7 +13,7 @@
  * once via the API and are stored in ERPNext.
  *
  * Usage (idempotent – safe to run multiple times):
- *   node scripts/run-erpnext-setup.js
+ *   node scripts/run-erpnext-setup.js 
  */
 require('dotenv').config();
 const axios = require('axios');
