@@ -26,15 +26,8 @@ describe('tenant self-service API (/api/v2/tenant/*)', () => {
       .send({ email, password, tenantSlug });
 
     expect(loginRes.status).toBe(200);
-    const verifyRes = await request(app)
-      .post('/api/v2/auth/verify-otp')
-      .send({
-        challengeId: loginRes.body.challengeId,
-        code: loginRes.body.otpPreview,
-      });
-
-    expect(verifyRes.status).toBe(200);
-    return verifyRes.body.token;
+    expect(loginRes.body.token).toBeTruthy();
+    return loginRes.body.token;
   }
 
   beforeEach(async () => {

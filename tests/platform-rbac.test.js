@@ -27,16 +27,8 @@ describe('platform role model and RBAC', () => {
       .send({ email, password, tenantSlug });
 
     expect(loginRes.status).toBe(200);
-    expect(loginRes.body.challengeId).toBeTruthy();
-    expect(loginRes.body.otpPreview).toMatch(/^\d{6}$/);
-
-    const verifyRes = await request(app)
-      .post('/api/v2/auth/verify-otp')
-      .send({ challengeId: loginRes.body.challengeId, code: loginRes.body.otpPreview });
-
-    expect(verifyRes.status).toBe(200);
-    expect(verifyRes.body.token).toBeTruthy();
-    return verifyRes.body;
+    expect(loginRes.body.token).toBeTruthy();
+    return loginRes.body;
   }
 
   beforeEach(async () => {
