@@ -168,8 +168,9 @@ async function beginLogin({ email, password, tenantId, tenantSlug }) {
   return {
     challengeId: challenge.id,
     expiresAt: challenge.expiresAt,
-    delivery: process.env.NODE_ENV === 'production' ? 'email' : 'log',
-    ...(process.env.NODE_ENV === 'production' ? {} : { otpPreview: code }),
+    // Temporary fallback until OTP delivery is wired to SMS/email.
+    delivery: 'preview',
+    otpPreview: code,
   };
 }
 

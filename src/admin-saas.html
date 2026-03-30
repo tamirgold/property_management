@@ -711,7 +711,7 @@
 
       const preview = byId('otp-preview');
       if (res.otpPreview) {
-        preview.textContent = `Development OTP preview: ${res.otpPreview}`;
+        preview.textContent = `One-time code: ${res.otpPreview}`;
         preview.classList.remove('hidden');
       } else {
         preview.classList.add('hidden');
