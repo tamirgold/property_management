@@ -14,6 +14,7 @@ const {
   normalizeRole,
 } = require('./auth');
 const { buildTenantContext } = require('./runtime');
+const { bootstrapErpnextIntegration, getErpnextPortalUrls } = require('./erpnext-bootstrap');
 
 function parseBearer(req) {
   const raw = req.headers.authorization || '';
@@ -307,7 +308,41 @@ function makePlatformRouter() {
     try {
       const store = await getStore();
       const integration = await store.getIntegrationConfig(req.params.tenantId, req.params.provider);
+      if (String(req.params.provider || '').trim().toLowerCase() === 'erpnext') {
+        return res.json({
+          ...(integration || {}),
+          portalUrls: getErpnextPortalUrls(integration?.baseUrl),
+        });
+      }
       res.json(integration || {});
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/tenants/:tenantId/integrations/erpnext/bootstrap', requireAuth({ minRole: 'company_admin' }), requireTenantAccess('company_admin'), async (req, res, next) => {
+    try {
+      const store = await getStore();
+      const [erpnext, stripe, telegram] = await Promise.all([
+        store.getIntegrationConfig(req.params.tenantId, 'erpnext'),
+        store.getIntegrationConfig(req.params.tenantId, 'stripe'),
+        store.getIntegrationConfig(req.params.tenantId, 'telegram'),
+      ]);
+
+      const result = await bootstrapErpnextIntegration({
+        baseUrl: erpnext?.baseUrl,
+        apiKey: erpnext?.apiKey,
+        apiSecret: erpnext?.apiSecret,
+        webhookSecret: erpnext?.webhookSecret,
+        webhookBaseUrl: process.env.WEBHOOK_BASE_URL || '',
+        stripePublishableKey: stripe?.publishableKey || process.env.STRIPE_PUBLISHABLE_KEY || '',
+        stripeSecretKey: stripe?.secretKey || process.env.STRIPE_SECRET_KEY || '',
+        stripePaymentAccount: stripe?.paymentAccount || process.env.STRIPE_PAYMENT_ACCOUNT || '',
+        stripeBankAccount: stripe?.bankAccount || process.env.STRIPE_BANK_ACCOUNT || '',
+        telegramAllowedGroupIds: telegram?.allowedGroupIds || [...(req.tenantContext?.integrations?.telegram?.allowedGroupIds || [])],
+      });
+
+      res.json(result);
     } catch (err) {
       next(err);
     }

@@ -185,6 +185,85 @@
 
     .status strong { color: #305746; }
 
+    .status-links {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 14px;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+
+    .status-links a {
+      color: #1d6a49;
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .status-links a:hover {
+      text-decoration: underline;
+    }
+
+    .integration-shell {
+      margin-top: 12px;
+      border: 1px solid #dbe8de;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #fbfefb 0%, #f1f8f2 100%);
+      padding: 14px;
+    }
+
+    .integration-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .integration-header p {
+      margin: 6px 0 0;
+      max-width: 700px;
+    }
+
+    .integration-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .integration-note {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #ecf6ef;
+      border: 1px solid #c9dfd0;
+      font-size: 13px;
+      color: #315845;
+    }
+
+    .integration-actions {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .integration-output {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid #d6e5d9;
+      background: #fcfffc;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      color: #264535;
+      max-height: 280px;
+      overflow: auto;
+    }
+
     .hidden { display: none !important; }
 
     .code-pill {
@@ -250,7 +329,9 @@
     @media (max-width: 880px) {
       .shell { padding: 14px; }
       .grid,
-      .grid.triple { grid-template-columns: 1fr; }
+      .grid.triple,
+      .integration-grid,
+      .status-links { grid-template-columns: 1fr; }
       .hero h1 { font-size: 21px; }
     }
   </style>
@@ -403,17 +484,27 @@
             </select>
           </div>
           <div class="field">
-            <label>Format</label>
-            <input type="text" value="JSON object" disabled />
+            <label>Provisioning</label>
+            <input id="integration-provisioning-status" type="text" value="Configure fields below" disabled />
           </div>
         </div>
-        <div class="field" style="margin-top:10px;">
-          <label>Integration Payload</label>
-          <textarea id="integration-json" spellcheck="false"></textarea>
-        </div>
-        <div class="actions">
-          <button class="btn-ghost" id="btn-load-integration">Reload</button>
-          <button class="btn-primary" id="btn-save-integration">Save Integration</button>
+        <div class="integration-shell">
+          <div class="integration-header">
+            <div>
+              <strong id="integration-title">ERPNext</strong>
+              <p class="status" id="integration-description"></p>
+            </div>
+            <span id="integration-badge" class="code-pill">Not Configured</span>
+          </div>
+          <div id="integration-form" class="integration-grid"></div>
+          <div id="integration-note" class="integration-note hidden"></div>
+          <div id="integration-links" class="status-links hidden"></div>
+          <div class="integration-actions">
+            <button class="btn-ghost" id="btn-load-integration">Reload</button>
+            <button class="btn-primary" id="btn-save-integration">Save Integration</button>
+            <button class="btn-ghost hidden" id="btn-bootstrap-erpnext">Run ERPNext Setup</button>
+          </div>
+          <div id="integration-output" class="integration-output hidden"></div>
         </div>
       </section>
 
@@ -449,9 +540,222 @@
       role: 'tenant',
       tenants: [],
       activeTenantId: '',
+      currentIntegrationConfig: {},
+    };
+
+    const INTEGRATION_DEFS = {
+      erpnext: {
+        title: 'ERPNext',
+        description: 'Connect PropMS to your ERPNext desk and tenant portal. Saving these values enables tenant-scoped API access. Running setup provisions the portal pages, webhooks, custom fields, and supporting scripts on ERPNext.',
+        note: 'Use an ERPNext API key and secret with permission to manage Portal Settings, Web Pages, Server Scripts, Custom Fields, and webhooks.',
+        provisioningStatus: 'Save credentials, then run ERPNext setup',
+        bootstrapEnabled: true,
+        fields: [
+          { key: 'baseUrl', label: 'ERPNext Base URL', placeholder: 'https://erp.example.com', required: true },
+          { key: 'apiKey', label: 'API Key', placeholder: 'ERPNext API key', required: true, type: 'password' },
+          { key: 'apiSecret', label: 'API Secret', placeholder: 'ERPNext API secret', required: true, type: 'password' },
+          { key: 'webhookSecret', label: 'Webhook Secret', placeholder: 'Shared webhook signing secret', type: 'password' },
+        ],
+      },
+      openai: {
+        title: 'OpenAI',
+        description: 'Configure the OpenAI model used by PropMS automation and AI helpers.',
+        note: 'The model field should match an available chat model for your account.',
+        provisioningStatus: 'Tenant-scoped model credentials',
+        fields: [
+          { key: 'apiKey', label: 'API Key', placeholder: 'sk-...', required: true, type: 'password' },
+          { key: 'model', label: 'Model', placeholder: 'gpt-4o' },
+        ],
+      },
+      telegram: {
+        title: 'Telegram',
+        description: 'Connect landlord alerts and command authorization to a Telegram bot and approved chats.',
+        note: 'Allowed IDs accept comma-separated numeric values.',
+        provisioningStatus: 'Tenant-scoped bot routing',
+        fields: [
+          { key: 'botToken', label: 'Bot Token', placeholder: '123456:ABCDEF...', required: true, type: 'password' },
+          { key: 'allowedUserIds', label: 'Allowed User IDs', placeholder: '12345,67890', type: 'csv-number' },
+          { key: 'allowedGroupIds', label: 'Allowed Group IDs', placeholder: '-1001234567890', type: 'csv-number' },
+        ],
+      },
+      twilio: {
+        title: 'Twilio',
+        description: 'Enable inbound and outbound tenant SMS flows through Twilio.',
+        provisioningStatus: 'Tenant-scoped SMS credentials',
+        fields: [
+          { key: 'accountSid', label: 'Account SID', placeholder: 'AC...', required: true },
+          { key: 'authToken', label: 'Auth Token', placeholder: 'Twilio auth token', required: true, type: 'password' },
+          { key: 'fromNumber', label: 'From Number', placeholder: '+15551234567', required: true },
+        ],
+      },
+      stripe: {
+        title: 'Stripe',
+        description: 'Configure rent collection via Stripe for card and ACH payments.',
+        note: 'Payment account and bank account should match the ERPNext GL accounts for payment posting.',
+        provisioningStatus: 'Tenant-scoped payment gateway settings',
+        fields: [
+          { key: 'publishableKey', label: 'Publishable Key', placeholder: 'pk_live_...' },
+          { key: 'secretKey', label: 'Secret Key', placeholder: 'sk_live_...', type: 'password' },
+          { key: 'webhookSecret', label: 'Webhook Secret', placeholder: 'whsec_...', type: 'password' },
+          { key: 'paymentAccount', label: 'ERPNext Payment Account', placeholder: 'Debtors - LD' },
+          { key: 'bankAccount', label: 'ERPNext Bank Account', placeholder: 'Stripe Clearing - LD' },
+        ],
+      },
     };
 
     function byId(id) { return document.getElementById(id); }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function parseCsvNumbers(value) {
+      return String(value || '')
+        .split(',')
+        .map(item => item.trim())
+        .filter(Boolean)
+        .map(item => Number(item))
+        .filter(Number.isFinite);
+    }
+
+    function formatCsvNumbers(value) {
+      return Array.isArray(value) ? value.join(', ') : '';
+    }
+
+    function hasConfiguredValue(value) {
+      if (Array.isArray(value)) return value.length > 0;
+      return String(value || '').trim() !== '';
+    }
+
+    function isIntegrationConfigured(provider, cfg) {
+      const def = INTEGRATION_DEFS[provider];
+      if (!def) return false;
+      return def.fields
+        .filter(field => field.required)
+        .every(field => hasConfiguredValue(cfg?.[field.key]));
+    }
+
+    function buildIntegrationLinks(provider, cfg) {
+      if (provider !== 'erpnext') return [];
+      const baseUrl = String(cfg?.baseUrl || '').trim().replace(/\/$/, '');
+      if (!baseUrl) return [];
+      return [
+        { label: 'ERPNext Desk', url: `${baseUrl}/app` },
+        { label: 'Tenant Login', url: `${baseUrl}/login` },
+        { label: 'My Invoices', url: `${baseUrl}/my-invoices` },
+        { label: 'Paid Invoices', url: `${baseUrl}/paid-invoices` },
+        { label: 'Maintenance Tickets', url: `${baseUrl}/helpdesk` },
+        { label: 'My Lease', url: `${baseUrl}/my-lease` },
+        { label: 'My Documents', url: `${baseUrl}/my-docs` },
+        { label: 'Rental Application', url: `${baseUrl}/apply` },
+      ];
+    }
+
+    function getIntegrationFormValue(field, cfg) {
+      const value = cfg?.[field.key];
+      if (field.type === 'csv-number') return formatCsvNumbers(value);
+      return value == null ? '' : String(value);
+    }
+
+    function readIntegrationForm(provider) {
+      const def = INTEGRATION_DEFS[provider];
+      const payload = {};
+      if (!def) return payload;
+
+      for (const field of def.fields) {
+        const el = byId(`integration-field-${field.key}`);
+        const raw = el ? el.value.trim() : '';
+        if (field.type === 'csv-number') {
+          payload[field.key] = parseCsvNumbers(raw);
+        } else {
+          payload[field.key] = raw;
+        }
+      }
+
+      return payload;
+    }
+
+    function setIntegrationOutput(message, isError = false) {
+      const el = byId('integration-output');
+      if (!message) {
+        el.classList.add('hidden');
+        el.textContent = '';
+        el.style.borderColor = '';
+        return;
+      }
+      el.classList.remove('hidden');
+      el.textContent = message;
+      el.style.borderColor = isError ? '#e5b7b0' : '#d6e5d9';
+    }
+
+    function renderIntegrationForm(provider, cfg = {}) {
+      const def = INTEGRATION_DEFS[provider];
+      const form = byId('integration-form');
+      const note = byId('integration-note');
+      const links = byId('integration-links');
+      const badge = byId('integration-badge');
+      const bootstrapBtn = byId('btn-bootstrap-erpnext');
+      const provisioning = byId('integration-provisioning-status');
+      const configured = isIntegrationConfigured(provider, cfg);
+      const perms = getPermissions();
+
+      byId('integration-title').textContent = def?.title || provider;
+      byId('integration-description').textContent = def?.description || '';
+      provisioning.value = def?.provisioningStatus || 'Tenant-scoped integration';
+      badge.textContent = configured ? 'Configured' : 'Not Configured';
+
+      if (!def) {
+        form.innerHTML = '';
+        note.classList.add('hidden');
+        links.classList.add('hidden');
+        bootstrapBtn.classList.add('hidden');
+        return;
+      }
+
+      form.innerHTML = def.fields.map(field => `
+        <div class="field">
+          <label>${escapeHtml(field.label)}${field.required ? ' *' : ''}</label>
+          <input
+            id="integration-field-${escapeHtml(field.key)}"
+            data-integration-field="1"
+            type="${field.type === 'password' ? 'password' : 'text'}"
+            placeholder="${escapeHtml(field.placeholder || '')}"
+            value="${escapeHtml(getIntegrationFormValue(field, cfg))}"
+          />
+        </div>
+      `).join('');
+
+      if (def.note) {
+        note.textContent = def.note;
+        note.classList.remove('hidden');
+      } else {
+        note.classList.add('hidden');
+        note.textContent = '';
+      }
+
+      const providerLinks = buildIntegrationLinks(provider, cfg);
+      if (providerLinks.length) {
+        links.innerHTML = providerLinks.map(link => `
+          <div><a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.label)}</a></div>
+        `).join('');
+        links.classList.remove('hidden');
+      } else {
+        links.innerHTML = '';
+        links.classList.add('hidden');
+      }
+
+      bootstrapBtn.classList.toggle('hidden', !def.bootstrapEnabled);
+      bootstrapBtn.disabled = !perms.canManageIntegrations || !configured;
+
+      for (const input of document.querySelectorAll('[data-integration-field]')) {
+        input.disabled = !perms.canManageIntegrations;
+      }
+    }
 
     function toast(message, isError = false) {
       const el = byId('toast');
@@ -548,9 +852,14 @@
       byId('btn-invite-user').disabled = !perms.canManageUsers;
 
       byId('integration-provider').disabled = !perms.canViewIntegrations;
-      byId('integration-json').disabled = !perms.canManageIntegrations;
       byId('btn-load-integration').disabled = !perms.canViewIntegrations;
       byId('btn-save-integration').disabled = !perms.canManageIntegrations;
+      if (!byId('btn-bootstrap-erpnext').classList.contains('hidden')) {
+        byId('btn-bootstrap-erpnext').disabled = !perms.canManageIntegrations || !isIntegrationConfigured(byId('integration-provider').value, state.currentIntegrationConfig);
+      }
+      for (const input of document.querySelectorAll('[data-integration-field]')) {
+        input.disabled = !perms.canManageIntegrations;
+      }
 
       byId('automations-json').disabled = !perms.canManageAutomations;
       byId('btn-load-automations').disabled = !perms.canViewAutomations;
@@ -622,16 +931,19 @@
     }
 
     async function loadIntegration() {
+      const provider = byId('integration-provider').value;
       if (!getPermissions().canViewIntegrations) {
-        byId('integration-json').value = '{}';
+        state.currentIntegrationConfig = {};
+        renderIntegrationForm(provider, {});
         return;
       }
       const tenantId = state.activeTenantId;
-      const provider = byId('integration-provider').value;
       if (!tenantId || !provider) return;
 
       const cfg = await api(`/tenants/${tenantId}/integrations/${provider}`);
-      byId('integration-json').value = JSON.stringify(cfg || {}, null, 2);
+      state.currentIntegrationConfig = cfg || {};
+      renderIntegrationForm(provider, state.currentIntegrationConfig);
+      setIntegrationOutput('');
     }
 
     async function loadAutomations() {
@@ -766,20 +1078,47 @@
       if (!tenant) return;
 
       const provider = byId('integration-provider').value;
-      let payload;
-      try {
-        payload = JSON.parse(byId('integration-json').value || '{}');
-      } catch (_err) {
-        toast('Integration JSON is invalid.', true);
-        return;
-      }
+      const payload = readIntegrationForm(provider);
 
       await api(`/tenants/${tenant.id}/integrations/${provider}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
 
+      state.currentIntegrationConfig = payload;
+      renderIntegrationForm(provider, payload);
+      setIntegrationOutput('');
       toast(`${provider} integration saved.`);
+    }
+
+    async function onBootstrapErpnext() {
+      if (!getPermissions().canManageIntegrations) {
+        toast('Only company admins can run ERPNext setup.', true);
+        return;
+      }
+      const tenant = getActiveTenant();
+      if (!tenant) return;
+
+      setIntegrationOutput('Running ERPNext setup. This can take a minute...');
+      const result = await api(`/tenants/${tenant.id}/integrations/erpnext/bootstrap`, {
+        method: 'POST',
+      });
+
+      const lines = [];
+      for (const step of result.outputs || []) {
+        lines.push(`== ${step.script} ==`);
+        if (step.stdout) lines.push(step.stdout);
+        if (step.stderr) lines.push(step.stderr);
+        lines.push('');
+      }
+
+      state.currentIntegrationConfig = {
+        ...state.currentIntegrationConfig,
+        portalUrls: result.portalUrls || {},
+      };
+      renderIntegrationForm('erpnext', state.currentIntegrationConfig);
+      setIntegrationOutput(lines.join('\n').trim() || 'ERPNext setup completed.');
+      toast('ERPNext setup completed.');
     }
 
     async function onSaveAutomations() {
@@ -867,6 +1206,7 @@
       byId('integration-provider').addEventListener('change', () => withError(loadIntegration));
       byId('btn-load-integration').addEventListener('click', () => withError(loadIntegration));
       byId('btn-save-integration').addEventListener('click', () => withError(onSaveIntegration));
+      byId('btn-bootstrap-erpnext').addEventListener('click', () => withError(onBootstrapErpnext));
 
       byId('btn-load-automations').addEventListener('click', () => withError(loadAutomations));
       byId('btn-save-automations').addEventListener('click', () => withError(onSaveAutomations));
@@ -885,6 +1225,7 @@
     async function init() {
       bindEvents();
       setAuthView(false);
+      renderIntegrationForm(byId('integration-provider').value, {});
 
       const raw = localStorage.getItem(SESSION_KEY);
       if (!raw) return;
