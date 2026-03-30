@@ -148,7 +148,10 @@ jobs:
         run: |
           OBJECTS="$(kubectl get certificaterequest,order,challenge -n "${{ env.K8S_NAMESPACE }}" -o name | grep -E '^(certificaterequest\.cert-manager\.io|order\.acme\.cert-manager\.io|challenge\.acme\.cert-manager\.io)/property-management-tls-' || true)"
           if [[ -n "${OBJECTS}" ]]; then
-            echo "${OBJECTS}" | xargs kubectl delete -n "${{ env.K8S_NAMESPACE }}"
+            while IFS= read -r object; do
+              [[ -n "${object}" ]] || continue
+              kubectl delete -n "${{ env.K8S_NAMESPACE }}" --ignore-not-found "${object}"
+            done <<< "${OBJECTS}"
           fi
 
       - name: Wait for Let's Encrypt certificate
