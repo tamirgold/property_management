@@ -1,6 +1,39 @@
+replicaCount:
+  telegram: 0
+
+keyVault:
+  objects:
+    - envName: PLATFORM_OWNER_PASSWORD
+      secretName: platform-owner-password
+    - envName: PLATFORM_ENCRYPTION_KEY
+      secretName: platform-encryption-key
+    - envName: WEBHOOK_SECRET
+      secretName: webhook-secret
+    - envName: DATABASE_URL
+      secretName: database-url
+
 config:
+  PLATFORM_OWNER_EMAIL: tamir@angeldiamond.com
   WEBHOOK_BASE_URL: https://pm.betterdeal.ai
-  ERPNEXT_BASE_URL: https://erpnext.example.com
+  ERPNEXT_BASE_URL: ""
+
+cronJobs:
+  jobs:
+    - id: overdue_rent
+      enabled: false
+      schedule: "0 8 * * *"
+    - id: lease_renewal
+      enabled: false
+      schedule: "0 10 * * *"
+    - id: late_fees
+      enabled: false
+      schedule: "30 10 * * *"
+    - id: stale_work_orders
+      enabled: false
+      schedule: "0 9 * * *"
+    - id: weekly_report
+      enabled: false
+      schedule: "0 17 * * 5"
 
 ingress:
   hosts:

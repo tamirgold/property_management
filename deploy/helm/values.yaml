@@ -23,23 +23,44 @@ keyVault:
   name: ""
   secretProviderClassName: property-management-spc
   objects:
-    - OPENAI_API_KEY
-    - TELEGRAM_BOT_TOKEN
-    - TELEGRAM_ALLOWED_USER_IDS
-    - TELEGRAM_ALLOWED_GROUP_IDS
-    - ERPNEXT_API_KEY
-    - ERPNEXT_API_SECRET
-    - WEBHOOK_SECRET
-    - STRIPE_SECRET_KEY
-    - STRIPE_PUBLISHABLE_KEY
-    - STRIPE_WEBHOOK_SECRET
-    - TWILIO_ACCOUNT_SID
-    - TWILIO_AUTH_TOKEN
-    - TWILIO_FROM_NUMBER
-    - BOLDSIGN_API_KEY
-    - BOLDSIGN_WEBHOOK_SECRET
-    - SMARTMOVE_API_KEY
-    - DATABASE_URL
+    - envName: OPENAI_API_KEY
+      secretName: openai-api-key
+    - envName: TELEGRAM_BOT_TOKEN
+      secretName: telegram-bot-token
+    - envName: TELEGRAM_ALLOWED_USER_IDS
+      secretName: telegram-allowed-user-ids
+    - envName: TELEGRAM_ALLOWED_GROUP_IDS
+      secretName: telegram-allowed-group-ids
+    - envName: PLATFORM_OWNER_PASSWORD
+      secretName: platform-owner-password
+    - envName: PLATFORM_ENCRYPTION_KEY
+      secretName: platform-encryption-key
+    - envName: ERPNEXT_API_KEY
+      secretName: erpnext-api-key
+    - envName: ERPNEXT_API_SECRET
+      secretName: erpnext-api-secret
+    - envName: WEBHOOK_SECRET
+      secretName: webhook-secret
+    - envName: STRIPE_SECRET_KEY
+      secretName: stripe-secret-key
+    - envName: STRIPE_PUBLISHABLE_KEY
+      secretName: stripe-publishable-key
+    - envName: STRIPE_WEBHOOK_SECRET
+      secretName: stripe-webhook-secret
+    - envName: TWILIO_ACCOUNT_SID
+      secretName: twilio-account-sid
+    - envName: TWILIO_AUTH_TOKEN
+      secretName: twilio-auth-token
+    - envName: TWILIO_FROM_NUMBER
+      secretName: twilio-from-number
+    - envName: BOLDSIGN_API_KEY
+      secretName: boldsign-api-key
+    - envName: BOLDSIGN_WEBHOOK_SECRET
+      secretName: boldsign-webhook-secret
+    - envName: SMARTMOVE_API_KEY
+      secretName: smartmove-api-key
+    - envName: DATABASE_URL
+      secretName: database-url
 
 config:
   WEBHOOK_PORT: "3000"
@@ -51,6 +72,7 @@ config:
   DEFAULT_TENANT_TIMEZONE: "America/Los_Angeles"
   DEFAULT_TENANT_LOCALE: "en-US"
   DEFAULT_TENANT_CURRENCY: "USD"
+  PLATFORM_OWNER_EMAIL: ""
   REPORT_DELIVERY: "telegram"
   WEBHOOK_BASE_URL: ""
   ERPNEXT_BASE_URL: ""
