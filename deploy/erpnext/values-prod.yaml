@@ -1,0 +1,128 @@
+image:
+  repository: pmbetterdealacr.azurecr.io/erpnext-propms
+  tag: v15.103.0-propms
+  pullPolicy: IfNotPresent
+
+nginx:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+worker:
+  gunicorn:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  default:
+    replicaCount: 0
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  short:
+    replicaCount: 0
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  long:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  scheduler:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 150m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+socketio:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 150m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+persistence:
+  worker:
+    enabled: true
+    storageClass: azurefile-csi
+    size: 20Gi
+    accessModes:
+      - ReadWriteMany
+  logs:
+    enabled: false
+
+mariadb-sts:
+  enabled: true
+  persistence:
+    storageClass: managed-csi
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+valkey-cache:
+  enabled: true
+
+valkey-queue:
+  enabled: true
+
+jobs:
+  configure:
+    enabled: true
+    fixVolume: true
+  createSite:
+    enabled: false
+    siteName: pm.betterdeal.ai
+    dbType: mariadb
+    installApps:
+      - erpnext
+      - telephony
+      - helpdesk
+      - propms
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+  hosts:
+    - host: pm.betterdeal.ai
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

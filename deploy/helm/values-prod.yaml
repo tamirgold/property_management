@@ -39,5 +39,17 @@ ingress:
   hosts:
     - host: pm.betterdeal.ai
       paths:
-        - path: /
+        - path: /admin
+          pathType: Prefix
+        - path: /api/v2
+          pathType: Prefix
+        - path: /api/properties-for-apply
+          pathType: Prefix
+        - path: /checkout
+          pathType: Prefix
+        - path: /payment-history
+          pathType: Prefix
+        - path: /webhooks
+          pathType: Prefix
+        - path: /t
           pathType: Prefix

@@ -95,23 +95,20 @@ const scripts = [
       disabled: 0,
       script: `
 ${SMS_HELPER}
-if not (doc.outstanding_amount and doc.outstanding_amount > 0):
-    return
-if not doc.customer:
-    return
-try:
-    cust = frappe.get_doc("Customer", doc.customer)
-    phone = getattr(cust, "mobile_no", None)
-    if phone:
-        msg = (
-            "Alert from Management: Your rent balance of $"
-            + str(doc.outstanding_amount)
-            + " for " + (doc.custom_unit or "your unit")
-            + " is past due. Please remit payment or contact the office."
-        )
-        _send_sms(phone, msg)
-except Exception as e:
-    frappe.log_error("Invoice SMS failed: " + str(e), "Property Management")
+if doc.outstanding_amount and doc.outstanding_amount > 0 and doc.customer:
+    try:
+        cust = frappe.get_doc("Customer", doc.customer)
+        phone = getattr(cust, "mobile_no", None)
+        if phone:
+            msg = (
+                "Alert from Management: Your rent balance of $"
+                + str(doc.outstanding_amount)
+                + " for " + (doc.custom_unit or "your unit")
+                + " is past due. Please remit payment or contact the office."
+            )
+            _send_sms(phone, msg)
+    except Exception as e:
+        frappe.log_error("Invoice SMS failed: " + str(e), "Property Management")
 `,
     },
   },
@@ -139,32 +136,30 @@ overdue = frappe.db.get_list(
     fields=["name", "customer", "customer_name", "outstanding_amount", "custom_unit"],
 )
 
-if not overdue:
-    return
+if overdue:
+    for inv in overdue:
+        cid = inv.get("customer")
+        if not cid:
+            continue
+        try:
+            cust = frappe.get_doc("Customer", cid)
+            phone = getattr(cust, "mobile_no", None)
+            if phone:
+                body = (
+                    "Alert from Management: Your rent balance of $"
+                    + str(inv.get("outstanding_amount"))
+                    + " for " + (inv.get("custom_unit") or "your unit")
+                    + " is past due. Please contact the office."
+                )
+                _send_sms(phone, body)
+        except Exception as e:
+            frappe.log_error("Daily overdue SMS failed: " + str(e), "Property Management")
 
-for inv in overdue:
-    cid = inv.get("customer")
-    if not cid:
-        continue
-    try:
-        cust = frappe.get_doc("Customer", cid)
-        phone = getattr(cust, "mobile_no", None)
-        if phone:
-            body = (
-                "Alert from Management: Your rent balance of $"
-                + str(inv.get("outstanding_amount"))
-                + " for " + (inv.get("custom_unit") or "your unit")
-                + " is past due. Please contact the office."
-            )
-            _send_sms(phone, body)
-    except Exception as e:
-        frappe.log_error("Daily overdue SMS failed: " + str(e), "Property Management")
-
-lines = "\\n".join(
-    "\\u2022 " + (i.get("customer_name") or "") + " (" + (i.get("custom_unit") or "N/A") + "): $" + str(i.get("outstanding_amount") or 0)
-    for i in overdue
-)
-_send_telegram("\\U0001f6a8 *Daily Overdue Rent Check*\\n\\n" + str(len(overdue)) + " tenant(s) past due:\\n" + lines)
+    lines = "\\n".join(
+        "\\u2022 " + (i.get("customer_name") or "") + " (" + (i.get("custom_unit") or "N/A") + "): $" + str(i.get("outstanding_amount") or 0)
+        for i in overdue
+    )
+    _send_telegram("\\U0001f6a8 *Daily Overdue Rent Check*\\n\\n" + str(len(overdue)) + " tenant(s) past due:\\n" + lines)
 `,
     },
   },
@@ -191,16 +186,14 @@ tickets = frappe.db.get_list(
 
 stale = [t for t in tickets if t.get("creation") and t["creation"] < cutoff]
 
-if not stale:
-    return
-
-lines = "\\n\\n".join(
-    "\\u2022 Ticket #" + t["name"] + "\\n"
-    + "  Issue: " + (t.get("subject") or "N/A") + "\\n"
-    + "  Priority: " + (t.get("priority") or "Normal")
-    for t in stale
-)
-_send_telegram("\\u26a0\\ufe0f *Stale Maintenance Tickets*\\n\\n" + str(len(stale)) + " ticket(s) open > 48h:\\n\\n" + lines)
+if stale:
+    lines = "\\n\\n".join(
+        "\\u2022 Ticket #" + t["name"] + "\\n"
+        + "  Issue: " + (t.get("subject") or "N/A") + "\\n"
+        + "  Priority: " + (t.get("priority") or "Normal")
+        for t in stale
+    )
+    _send_telegram("\\u26a0\\ufe0f *Stale Maintenance Tickets*\\n\\n" + str(len(stale)) + " ticket(s) open > 48h:\\n\\n" + lines)
 `,
     },
   },
